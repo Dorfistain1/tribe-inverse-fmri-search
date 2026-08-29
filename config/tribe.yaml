@@ -1,0 +1,30 @@
+# Global TRIBE settings. Experiment-specific settings (hypotheses, fitness
+# metrics, generation parameters, etc.) belong in experiments/<name>/config,
+# not here -- see mainStructure.md "Configuration Philosophy".
+
+model:
+  repo_id: facebook/tribev2
+  checkpoint_name: best.ckpt
+
+# video deliberately unsupported: not needed for planned experiments and
+# is by far the most VRAM-hungry branch (V-JEPA2-Giant). Add it back here
+# only if a future experiment genuinely requires it.
+supported_modalities:
+  - audio
+  - text
+
+device: auto  # "auto" | "cuda" | "cpu"
+
+# The checkpoint's saved config sets this to a value tuned for whatever
+# many-core Linux box TRIBE was trained on (observed: 20). On Windows,
+# each DataLoader worker is a freshly spawned process that reimports
+# torch from scratch, so more workers than physical cores just adds
+# overhead. 4 matches this machine's physical core count.
+num_workers: 4
+
+paths:
+  # Model weights and HF/uv caches live on the external HDD, never on C:.
+  model_root: G:/AI_Models
+  # Raw TRIBE predictions are reusable assets, kept separate from any
+  # experiment's derived results -- see mainStructure.md "Raw vs Derived".
+  prediction_cache: outputs/tribe_predictions

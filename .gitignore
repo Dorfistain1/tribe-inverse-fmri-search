@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Model weights / caches (stored on G:\AI_Models, never in repo)
+models/
+cache/
+*.ckpt
+*.pt
+*.safetensors
+
+# Data / outputs
+shared_data/
+outputs/
+experiments/*/data/
+experiments/*/results/
+
+# Scratch test artifacts
+scripts/_test_tone.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
