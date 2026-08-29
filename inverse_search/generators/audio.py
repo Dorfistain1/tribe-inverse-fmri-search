@@ -53,6 +53,15 @@ class AudioGenerator(StimulusGenerator):
     fresh draw rather than a mutation. Re-tune if the generation prompt
     or duration changes substantially -- this was measured on one
     3s "ambient drone music" clip, not a general constant.
+
+    duration_s default (5.0) reflects a real hardware ceiling on this
+    8GB card, well short of Stable Audio Open's documented 47s max:
+    generation time is fine through ~8s, but something (likely
+    attention cost) scales badly beyond that -- 12s measured at ~8
+    minutes for one clip, 20s+ hard OOMs. enable_tiling() "fixes" the
+    OOM but made it worse (20+ minutes and still running), not a real
+    fix. Keep clips short; that's also what keeps a full search
+    generation fast enough to be usable.
     """
 
     modality = "audio"
@@ -61,8 +70,8 @@ class AudioGenerator(StimulusGenerator):
         self,
         model_root: str = "G:/AI_Models",
         prompt: str = "ambient music",
-        duration_s: float = 4.0,
-        num_inference_steps: int = 50,
+        duration_s: float = 5.0,
+        num_inference_steps: int = 40,
         mutation_strength: float = 0.5,
         output_dir: str | Path | None = None,
         device: str = "cuda",
@@ -93,6 +102,17 @@ class AudioGenerator(StimulusGenerator):
             self._pipe = StableAudioPipeline.from_pretrained(
                 MODEL_ID, dtype=torch.float16
             ).to(self.device)
+            # The VAE decoder upsamples ~86x (512 latent frames/s ->
+            # 44100 samples/s) in one shot by default -- fine at 4s, but
+            # OOMs on an 8GB card well before Stable Audio Open's
+            # documented 47s max (measured: fails around 20s).
+            # enable_tiling() "fixes" the OOM but is a bad trade here --
+            # measured 20+ minutes and still running on a 20s clip, vs.
+            # ~15s without it at durations that fit. Not worth it; stick
+            # to whatever duration fits without tiling (see
+            # experiments/psyche_search's notes for the measured ceiling
+            # on this 8GB card).
+            self._pipe.vae.enable_slicing()
         return self._pipe
 
     def unload(self) -> None:

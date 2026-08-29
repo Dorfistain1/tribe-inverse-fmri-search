@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from typing import Callable
 
@@ -31,18 +32,24 @@ class EvolutionarySearch:
     the selection loop that ties those three pieces together -- see
     mainStructure.md "Experiment Contract" for why that boundary matters.
 
-    Not yet runnable: generators are stubs (see generators/audio.py,
-    generators/text.py) until a mutation strategy is chosen.
+    Pass runtime=None (and no target needed then) to test generator +
+    selection mechanics alone, with random fitness instead of a real
+    TRIBE prediction -- useful for checking mutation/selection actually
+    behaves sensibly without paying TRIBE's load cost, before wiring in
+    the real brain-based fitness. Not a permanent mode to build on top
+    of; swap in a real runtime + target once the mechanics look right.
     """
 
     def __init__(
         self,
-        runtime: TribeRuntime,
+        runtime: TribeRuntime | None,
         generator: StimulusGenerator,
-        target: NeuralTarget,
+        target: NeuralTarget | None = None,
         fitness_fn: FitnessFn = network_delta_score,
         config: SearchConfig | None = None,
     ):
+        if runtime is not None and target is None:
+            raise ValueError("target is required when runtime is given")
         self.runtime = runtime
         self.generator = generator
         self.target = target
@@ -50,6 +57,9 @@ class EvolutionarySearch:
         self.config = config or SearchConfig()
 
     def evaluate(self, candidate: Candidate) -> float:
+        if self.runtime is None:
+            candidate.fitness = random.random()
+            return candidate.fitness
         prediction = self.runtime.predict(candidate.stimulus)
         candidate.fitness = self.fitness_fn(prediction, self.target)
         return candidate.fitness
@@ -57,7 +67,31 @@ class EvolutionarySearch:
     def run(self) -> list[Candidate]:
         """Run the full search, returning the final population sorted
         by fitness descending."""
-        raise NotImplementedError(
-            "Selection/mutation loop not yet implemented -- "
-            f"{self.generator.__class__.__name__} has no mutation strategy yet."
-        )
+        population = [
+            Candidate(stimulus=s, generation=0)
+            for s in self.generator.initial_population(self.config.population_size)
+        ]
+        for candidate in population:
+            self.evaluate(candidate)
+
+        for generation in range(1, self.config.n_generations):
+            population.sort(key=lambda c: c.fitness, reverse=True)
+            n_elite = max(1, round(len(population) * self.config.elite_fraction))
+            elites = population[:n_elite]
+
+            next_population = list(elites)
+            while len(next_population) < self.config.population_size:
+                parent = random.choice(elites)
+                child_stimulus = self.generator.mutate(parent)
+                child = Candidate(
+                    stimulus=child_stimulus,
+                    generation=generation,
+                    parent_id=parent.stimulus.identifier,
+                )
+                self.evaluate(child)
+                next_population.append(child)
+
+            population = next_population
+
+        population.sort(key=lambda c: c.fitness, reverse=True)
+        return population
