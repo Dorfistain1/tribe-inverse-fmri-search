@@ -5,6 +5,7 @@ import os
 from tribe_core import _windows_patches
 from tribe_core.cache import PredictionCache
 from tribe_core.config import TribeConfig
+from tribe_core.env import configure_hf_cache
 from tribe_core.prediction import BrainPrediction
 from tribe_core.stimulus import Stimulus
 
@@ -38,8 +39,7 @@ class TribeRuntime:
         self.cache = PredictionCache(self.config.prediction_cache)
 
     def _configure_environment(self) -> None:
-        os.environ.setdefault("HF_HOME", self.config.hf_cache_dir())
-        os.environ.setdefault("TRANSFORMERS_CACHE", self.config.hf_cache_dir())
+        configure_hf_cache(self.config.model_root)
         os.environ.setdefault("TORCH_HOME", self.config.torch_cache_dir())
         os.environ.setdefault("UV_CACHE_DIR", self.config.uv_cache_dir())
         os.environ.setdefault("NILEARN_DATA", self.config.nilearn_data_dir())

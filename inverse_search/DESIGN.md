@@ -31,7 +31,7 @@ psychedelic target is, what Stable Audio Open is, or how mutation
 actually works. See mainStructure.md "Experiment Contract" for why that
 boundary is kept strict.
 
-## Generator: Stable Audio Open
+## Generator: Stable Audio Open (built -- see generators/audio.py)
 
 Chosen over MusicGen (needs 12GB VRAM at fp16, doesn't fit this
 machine's 8GB card) and a fully custom parametric synth (less
@@ -43,11 +43,20 @@ perturbed directly, unlike an autoregressive token model where
 License: Stability AI Community License -- free for non-commercial use
 and for orgs under $1M/year revenue. Fine for a free/open-source
 research project; would need a real license for anything commercial.
+Gated on HuggingFace (auto-approved -- accept the license on the model
+page once, then `hf auth login`).
+
+Latent shape (1, 64, duration_s * 512) was measured empirically (loaded
+the pipeline, generated a clip, inspected the actual tensor via a
+diffusion-step callback) rather than read from docs -- see
+generators/audio.py's module docstring if this needs re-deriving after
+a model/library update.
 
 ### VRAM strategy: sequential load/unload, not concurrent
 
-Stable Audio Open (~5.9GB) and TRIBE (~3-6GB depending on modality)
-together don't fit in 8GB. They never need to be resident at once:
+Stable Audio Open (~5.9GB measured peak) and TRIBE (~3-6GB depending on
+modality) together don't fit in 8GB. They never need to be resident at
+once:
 
 ```
 load generator -> generate candidate batch -> unload generator
@@ -55,13 +64,31 @@ load TRIBE     -> predict + score batch     -> unload TRIBE
                  (repeat next generation)
 ```
 
-Not yet implemented in code -- `TribeRuntime` currently loads lazily
-and keeps the model resident once loaded (fine when it's the only heavy
-model in the process). Once the generator exists, `TribeRuntime` will
-need an explicit `unload()`/reload path, or the generator and TRIBE
-should run as two separate short-lived processes.
+`AudioGenerator.load()`/`.unload()` implement this on the generator
+side (confirmed VRAM actually drops to ~0 after unload). `TribeRuntime`
+itself still only loads lazily and stays resident once loaded -- fine
+today since nothing calls generator and runtime in the same process
+yet, but `search.py`'s `run()` will need to explicitly interleave
+`generator.unload()` before the first `runtime.predict()` call once
+the full loop is wired up.
 
-## Mutation: direct latent perturbation (v1)
+### A real gotcha hit building this: HF_HOME redirection breaks gated-model auth
+
+Both TRIBE and Stable Audio Open needed HF_HOME redirected off C: (see
+mainStructure.md's shared-storage principle). Doing that naively broke
+auth for *both* Llama and Stable Audio Open, silently, no error until
+the download itself 401s. Root cause: some `huggingface_hub` versions
+only look for the token at `$HF_HOME/token`, not the real default
+`~/.cache/huggingface/token`, once HF_HOME points elsewhere -- and
+fixing that by calling `huggingface_hub.get_token()` before redirecting
+is *itself* broken, because merely importing huggingface_hub bakes
+HF_HOME into an internal constant at that exact moment. Fixed in
+`tribe_core/env.py`'s `configure_hf_cache()`: read the token file
+directly (plain file I/O, no huggingface_hub import) before touching
+HF_HOME at all. Both `TribeRuntime` and `AudioGenerator` call this same
+helper, since they don't share a process lifecycle.
+
+## Mutation: direct latent perturbation (v1, built)
 
 Take a candidate's latent tensor, add small random noise, decode. This
 is the "dumb" evolutionary approach: random mutation + selection, no
@@ -73,6 +100,11 @@ priority, and because the research notes (experiments/psyche_search/
 restructure.md, sections 14-15) call for a simple-GA / random-search
 baseline before anything fancier anyway -- this isn't wasted work, it's
 the thing v2 needs to be compared against to prove it's actually better.
+
+`mutation_strength` default (0.5) was tuned by ear on one prompt/
+duration, not derived -- see generators/audio.py's docstring for the
+comparison points (0.15/0.3 too subtle, 0.5 clearly related-but-
+different, 0.8+ starting to feel unrelated).
 
 ## Deferred: surrogate-model-guided search (v2)
 

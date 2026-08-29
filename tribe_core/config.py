@@ -38,9 +38,6 @@ class TribeConfig:
         """Identifies model + checkpoint for cache keys and provenance."""
         return f"{self.repo_id}:{self.checkpoint_name}"
 
-    def hf_cache_dir(self) -> str:
-        return os.path.join(self.model_root, "huggingface")
-
     def torch_cache_dir(self) -> str:
         return os.path.join(self.model_root, "torch")
 

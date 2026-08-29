@@ -35,10 +35,10 @@ https://huggingface.co/meta-llama/Llama-3.2-3B for full terms.
 The audio modality (Wav2Vec-BERT) and the TRIBE encoder itself are not
 subject to this license.
 
-## Stable Audio Open (planned, inverse_search's audio generator)
+## Stable Audio Open (inverse_search's audio generator)
 
-`inverse_search`'s audio candidate generator (see
-`inverse_search/DESIGN.md`) is planned to use `stabilityai/stable-audio-open-1.0`,
+`inverse_search`'s audio candidate generator (`generators/audio.py`)
+uses `stabilityai/stable-audio-open-1.0`,
 licensed under the **Stability AI Community License**: free for
 research and non-commercial use, and for commercial use by
 organizations with under $1,000,000 in annual revenue. See

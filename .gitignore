@@ -25,3 +25,6 @@ scripts/_test_tone.*
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Claude Code local session state (not project content)
+.claude/
