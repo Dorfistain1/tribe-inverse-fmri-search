@@ -131,6 +131,30 @@ produces a fitness curve, per restructure.md section 15 -- compare
 against a pure-random baseline first, *then* decide if the surrogate
 model is worth building.
 
+## Deferred: extending the winning candidate past the duration ceiling
+
+`AudioGenerator`'s duration_s is capped around 5-8s by a real hardware
+wall (see its docstring -- the VAE decoder's cost blows up well before
+Stable Audio Open's documented 47s max on this 8GB card). That's a
+property of the generation model + this GPU, independent of search
+strategy -- a smarter search (the surrogate model above) still only
+ever searches in the cheap short-clip regime, and should: there's no
+reason to pay for long-duration generation on every candidate just to
+evaluate it.
+
+The plan for getting a longer *final* piece once search converges on a
+good candidate: `StableAudioPipeline` accepts `initial_audio_waveforms`
+(a clip to condition on, i.e. continue from) -- generate the winning
+clip, feed its tail back in as the seed for the next chunk, repeat.
+Each individual call stays in the cheap regime; only the assembly of
+several such calls produces something longer. This is a one-time cost
+applied to the winning candidate at the end, not something the search
+loop itself needs to do.
+
+Not built yet -- noted here so it isn't lost. When building it: the
+surrogate/search's job is entirely "find a good seed to extend," it
+never needs to know long clips exist.
+
 ## Target: intentionally out of scope here
 
 See `experiments/psyche_search/src/run_search.py` and
