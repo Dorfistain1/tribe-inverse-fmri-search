@@ -62,6 +62,18 @@ class AudioGenerator(StimulusGenerator):
     OOM but made it worse (20+ minutes and still running), not a real
     fix. Keep clips short; that's also what keeps a full search
     generation fast enough to be usable.
+
+    prompt default (plain "ambient music") reflects a real finding, not
+    just a placeholder: prompts calling for crisp, precisely-timed
+    drums (tested: "upbeat electronic dance music") produced noticeably
+    worse, more incoherent output than sustained/melodic prompts
+    (tested: "country acoustic guitar song" -- clearly better) at the
+    same settings. Likely a general diffusion-audio-model weakness
+    (precise transients are harder than sustained texture), not
+    specific to this prompt wording. Conveniently, sustained/atmospheric
+    material is also the natural fit for psyche_search's actual target
+    anyway -- so favor ambient/sustained prompts over drum-heavy ones
+    when choosing what to search over.
     """
 
     modality = "audio"
