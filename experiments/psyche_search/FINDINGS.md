@@ -194,4 +194,40 @@ rather than "evolutionary wins today."
 
 ---
 
+## 2026-08-30: prompt changed to structured music; random-baseline runs deprioritized
+
+Two methodology changes going forward, both from direct user feedback
+after listening to actual output:
+
+**Prompt.** "Ambient drone music, sustained atmospheric pads" (used in
+every run above) is genuinely hard for a human to tell candidates
+apart by ear regardless of fitness score -- there isn't enough
+structure in ambient drone for a listener to anchor on. Switched the
+experiment's default prompt to `"upbeat pop song with vocals, drums,
+bass, and a catchy melody"` -- something with melody/rhythm/vocals to
+actually judge by ear, same reasoning as "I can tell Ariana Grande from
+Rihanna far better than one drone pad from another." No named artist
+in the prompt itself (avoids likeness issues on a public repo; this
+model wasn't built for voice mimicry so it wouldn't work anyway --
+expect generic, possibly mumbled vocals). Real risk going in, per
+AudioGenerator's own docstring: this model already produced worse,
+more incoherent output on precise/complex content (tested: EDM drums)
+than sustained/melodic prompts -- vocals+drums+bass is a bigger ask
+than that alone. If output comes out garbled rather than song-like,
+that's the expected failure mode to watch for, not a bug.
+
+**Random-baseline comparisons deprioritized.** The next planned work is
+"the Watcher" (see inverse_search/DESIGN.md's deferred v2 section) --
+a surrogate model that learns from real evaluated candidates to guide
+mutation. Watching a random-number generator teaches it nothing, so
+there's no more value in spending a ~70-90min run on `run_random_baseline()`
+just to prove evolution beats random -- that question was already
+answered directionally in the entry above (evolutionary won, modestly).
+`run_baseline_cli.py` is kept working in case a comparison is ever
+wanted again, just no longer part of the regular workflow. This does
+mean future evolutionary-only results can't be checked against a
+random floor going forward -- a deliberate tradeoff, not an oversight.
+
+---
+
 *(next entries go here)*

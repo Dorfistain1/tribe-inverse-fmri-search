@@ -30,7 +30,11 @@ from inverse_search.generators.audio import AudioGenerator
 from tribe_core import TribeRuntime
 
 OUTPUT_DIR = "experiments/psyche_search/data/baseline_run"
-PROMPT = "ambient drone music, sustained atmospheric pads"
+# Kept matched to run_evolution_cli.py's prompt in case this script
+# gets run again later -- see FINDINGS.md's "random-baseline comparison
+# runs deprioritized" entry for why it isn't part of the regular
+# workflow anymore.
+PROMPT = "upbeat pop song with vocals, drums, bass, and a catchy melody"
 
 
 def print_progress(message: str) -> None:

@@ -32,7 +32,18 @@ from tribe_core import TribeRuntime
 
 CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "evolution_checkpoint.json"
 OUTPUT_DIR = "experiments/psyche_search/data/evolution_run"
-PROMPT = "ambient drone music, sustained atmospheric pads"
+# Structured, not ambient/drone -- a human needs something with melody/
+# rhythm/vocals to actually tell candidates apart by ear (drone all
+# sounds the same regardless of fitness, see FINDINGS.md). No named
+# artist/style: avoids likeness issues on a public repo, and this model
+# wasn't built for voice mimicry anyway -- expect generic, possibly
+# mumbled vocals, not anything resembling a real singer. Also a real
+# risk per AudioGenerator's docstring: precise/complex content (tested:
+# EDM drums) came out worse than sustained/melodic prompts on this
+# model -- vocals+drums+bass is a bigger ask than that. If this comes
+# out incoherent rather than song-like, that's a finding to log, not a
+# bug to fix.
+PROMPT = "upbeat pop song with vocals, drums, bass, and a catchy melody"
 
 
 def print_progress(message: str) -> None:
