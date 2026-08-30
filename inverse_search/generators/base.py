@@ -30,3 +30,13 @@ class StimulusGenerator(ABC):
     def mutate(self, parent: Candidate) -> Stimulus:
         """Produce one new stimulus derived from a parent candidate."""
         raise NotImplementedError
+
+    def load(self) -> None:
+        """Load any heavy model this generator needs. No-op by default
+        -- override if there's VRAM to manage (see generators/audio.py).
+        EvolutionarySearch calls this/unload() around generation phases
+        so a generator and TribeRuntime never need to be resident at
+        the same time on hardware too small for both (DESIGN.md)."""
+
+    def unload(self) -> None:
+        """Free whatever load() loaded. No-op by default."""

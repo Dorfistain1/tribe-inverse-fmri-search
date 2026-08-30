@@ -71,6 +71,20 @@ class TribeRuntime:
         )
         _windows_patches.patch_transcription_compute_type()
 
+    def unload(self) -> None:
+        """Frees the model and its VRAM. For sequential-load-vs-TRIBE
+        setups (e.g. inverse_search's AudioGenerator, see
+        inverse_search/DESIGN.md) -- call this before loading another
+        heavy model in the same process. Safe to call whether or not a
+        model is currently loaded; predict() will lazily reload on next
+        use."""
+        if self._model is not None:
+            del self._model
+            self._model = None
+            import torch
+
+            torch.cuda.empty_cache()
+
     def predict(
         self,
         stimulus: Stimulus,
