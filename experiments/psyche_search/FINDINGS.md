@@ -203,18 +203,22 @@ after listening to actual output:
 every run above) is genuinely hard for a human to tell candidates
 apart by ear regardless of fitness score -- there isn't enough
 structure in ambient drone for a listener to anchor on. Switched the
-experiment's default prompt to `"upbeat pop song with vocals, drums,
-bass, and a catchy melody"` -- something with melody/rhythm/vocals to
-actually judge by ear, same reasoning as "I can tell Ariana Grande from
-Rihanna far better than one drone pad from another." No named artist
-in the prompt itself (avoids likeness issues on a public repo; this
-model wasn't built for voice mimicry so it wouldn't work anyway --
-expect generic, possibly mumbled vocals). Real risk going in, per
-AudioGenerator's own docstring: this model already produced worse,
-more incoherent output on precise/complex content (tested: EDM drums)
-than sustained/melodic prompts -- vocals+drums+bass is a bigger ask
-than that alone. If output comes out garbled rather than song-like,
-that's the expected failure mode to watch for, not a bug.
+experiment's default prompt to something with real melody/rhythm to
+judge by ear, same reasoning as "I can tell Ariana Grande from Rihanna
+far better than one drone pad from another." First draft included
+vocals, but that was dropped before ever running it -- this model
+isn't built for voice mimicry (expect generic, possibly mumbled
+quasi-singing, not anything resembling a real singer), so it wasn't
+worth the added risk versus an instrumental prompt that still has
+melody/rhythm to anchor on. No named artist in the prompt either way
+(avoids likeness issues on a public repo). Settled prompt:
+`"upbeat instrumental pop song with drums, bass, and a catchy melody"`.
+Real risk still going in, per AudioGenerator's own docstring: this
+model already produced worse, more incoherent output on precise/
+complex content (tested: EDM drums) than sustained/melodic prompts --
+drums+bass+melody is still a bigger ask than pure ambient. If output
+comes out garbled rather than song-like, that's the expected failure
+mode to watch for, not a bug.
 
 **Random-baseline comparisons deprioritized.** The next planned work is
 "the Watcher" (see inverse_search/DESIGN.md's deferred v2 section) --

@@ -34,7 +34,7 @@ OUTPUT_DIR = "experiments/psyche_search/data/baseline_run"
 # gets run again later -- see FINDINGS.md's "random-baseline comparison
 # runs deprioritized" entry for why it isn't part of the regular
 # workflow anymore.
-PROMPT = "upbeat pop song with vocals, drums, bass, and a catchy melody"
+PROMPT = "upbeat instrumental pop song with drums, bass, and a catchy melody"
 
 
 def print_progress(message: str) -> None:
