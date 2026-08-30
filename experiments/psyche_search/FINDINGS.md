@@ -548,6 +548,38 @@ tracks `batch_best` (this generation's best *new* candidate) alongside
 batch_best staying far below running_best for many generations in a
 row is exactly the plateau signal that was invisible before.
 
+**Patience fix, then the real ceiling.** First patience attempt
+(decay after 1 stall, i.e. none) collapsed step_scale to its floor
+within ~18 generations and scored *worse* (13.76% by gen 333) than not
+decaying at all -- fixed by only decaying after 5 *consecutive*
+stalled generations (`stall_patience`, added to all three decay
+implementations: `GradientSurrogateFakeLatentGenerator`'s step_scale,
+`FakeLatentGenerator`/`AudioGenerator`'s mutation_strength).
+
+With that fix, the full 1000-generation run: **23.36% of the gap
+closed at generation 999** -- better than the un-decayed plateau
+(19.5%), but it settled into this new plateau by roughly generation
+300 (23.32% there) and the remaining ~700 generations bought only
++0.04 percentage points. Never crossed the 25% milestone. 26 minutes
+total, all CPU.
+
+**Real conclusion, not just a tuning note:** this specific
+approach -- a linear (ridge regression) surrogate providing a gradient
+direction, stepped with a decaying scale -- has a genuine ceiling
+around 20-25% of this gap, not a slow-but-still-climbing trajectory.
+More generations of the same method don't help past that point. Likely
+cause: the surrogate is linear, but the true objective (L2 distance to
+a point) curves -- a straight-line model can point roughly toward the
+target from far away, but can't represent *when to slow down* as you
+approach it, so refinement stalls once linear approximation stops
+being locally accurate. Getting further would need either a surrogate
+that captures curvature (not just a gradient), or a fundamentally
+different step strategy (e.g. plain small-step gradient descent redone
+every generation, rather than one big leap followed by decay). Neither
+is built yet. 20-25% is real, dramatic progress over blind mutation's
+~0.01-0.02% -- but still far short of anything resembling "sounds
+similar to the target."
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
