@@ -645,6 +645,52 @@ repeats yet. The specific generation where the breakthrough happens
 samples happen to accumulate) -- not yet verified as reproducible
 across different random seeds/targets.
 
+## 2026-08-31: does higher fitness even correspond to an audible difference? Checked on real data.
+
+Prompted by a direct user concern after the sparse-readout listening
+test: a 99% fitness score meant almost nothing audible changed
+(FINDINGS.md's sparse-readout entries) -- is fitness ever going to
+track something a human would actually notice, or could the whole
+project converge on changes too subtle to matter to anyone listening?
+
+Built `inverse_search/acoustic_features.py` (spectral centroid =
+brightness, RMS = loudness, short-window dynamic range, zero-crossing
+rate = roughness/noisiness -- standard, dependency-free DSP metrics)
+and `audio_feature_report.py`, then ran it immediately on the *real*
+`evolution_run` data (26 real, TRIBE-scored candidates, zero
+additional compute -- the audio already existed).
+
+**Result: essentially no correlation between fitness and any of the
+four features** (spectral centroid +0.095, RMS -0.066, dynamic range
++0.027, zero-crossing rate +0.015 -- all near zero). Values are
+tightly clustered across the whole fitness range (dynamic range sits
+at ~104.5-105.1 dB whether fitness is -0.09 or +0.16).
+
+This is real evidence, not a hypothetical: on the one real run we
+have, improving TRIBE-based fitness does not correspond to any of
+these obvious, human-relevant acoustic properties changing. Two
+readings, not yet distinguished: (1) TRIBE's real driver is something
+more subtle/complex than these 4 basic descriptors capture (plausible
+-- brain response could depend on spectral/temporal patterns finer
+than "brighter" or "louder"), or (2) the actual acoustic differences
+really are close to imperceptible in any human-relevant sense. Either
+way, this directly validates the user's concern about the sparse-
+readout test generalizing to the real experiment: chasing a fitness
+number is not the same as producing something a listener can tell
+apart, and this is the first real (not synthetic) data point showing
+that gap might be real here too.
+
+**Proposed next test (not yet run, costs real GPU time):** build a
+partial-fake target that explicitly rewards a large, obviously
+audible acoustic change (e.g. maximize spectral centroid/brightness),
+computed from real decoded audio rather than TRIBE or a synthetic
+latent-space proxy. If the Watcher can push that to a perceptible
+extreme, it proves guided search *can* find audible structure when the
+target actually has it -- directly testing whether the search itself
+is capable of producing perceptible change, isolated from the separate
+question of whether TRIBE's real landscape rewards anything perceptible
+at all.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
