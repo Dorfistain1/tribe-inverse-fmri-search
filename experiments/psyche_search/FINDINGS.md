@@ -464,6 +464,57 @@ complexity yet. Don't invest further here without a better surrogate
 or more data per fit; plain blind mutation at a known-good
 mutation_strength remains the best fake-tier result so far.
 
+## 2026-08-30: Watcher v2 (gradient-directed) -- a real breakthrough on the fake tier
+
+After v1 underperformed, rebuilt as `GradientSurrogateFakeLatentGenerator`
+(`generators/watcher_fake.py`): instead of picking the best of several
+random guesses, use the fitted linear surrogate's own gradient
+(`components.T @ ridge.coef_`) as an actual direction to step in,
+scaled by a `step_scale` parameter, plus a smaller amount of ordinary
+random noise for continued exploration/data diversity.
+
+Also fixed a real performance bug found while testing this: the
+surrogate was being refit from scratch on the entire history for
+*every* mutation call, not once per generation -- refitting is cached
+by history length now (only refits when new data actually arrived),
+and history is capped at 200 samples so PCA cost stays bounded across
+hundreds of generations instead of growing unboundedly.
+
+**step_scale calibration** (`tune_watcher_v2.py`, 30 generations each,
+same target, single run per value -- narrowed in three passes):
+
+| step_scale | % of gap closed |
+|---|---|
+| 0.5 - 3 | ~0% (too small to matter -- a unit gradient step is tiny across 164,000 dims) |
+| 10 - 300 | 1.15% -> 8.17% (climbing) |
+| 400 - 500 | 17-19%, peaking at **475: 19.49%** |
+| 550+ | falling |
+| 1000+ | back to ~0% -- catastrophic overshoot |
+
+The collapse above ~750 makes sense given the objective is a smooth
+bowl (L2 distance to a point): the gradient direction is only valid
+*locally* -- step far enough along it and you sail straight past the
+target's basin into territory the linear surrogate never saw, landing
+back at effectively-random. There's a real, sharp optimum, not a
+"more is better" relationship.
+
+For comparison, every blind-mutation result measured earlier in this
+file peaks around 0.01-0.02% of the same gap. 19.49% is roughly
+1000-2000x better than anything blind mutation (with or without
+adaptive decay) achieved. This is the first result in the whole
+project that looks like more than noise relative to the actual goal
+(sounding meaningfully similar to a target), not just "beats a
+randomized baseline by a small margin."
+
+Caveats, still standing: (1) single run per calibration point, some
+noise likely, though the smooth rise-then-fall shape across the final
+7-point sweep is a real curve, not scatter; (2) this is still the fake
+landscape (raw L2 distance in latent space), not TRIBE's real fitness
+-- a real run is the next real test, once the fake tier's long-run
+behavior (see next entry) is understood; (3) step_scale=475 is
+specific to this mutation_strength (0.005) and this target/duration --
+not verified to transfer if those change.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
