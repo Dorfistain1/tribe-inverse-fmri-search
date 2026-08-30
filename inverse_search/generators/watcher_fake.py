@@ -144,9 +144,31 @@ class GradientSurrogateFakeLatentGenerator(_SurrogateBase):
     surrogate's direction is wrong.
     """
 
-    def __init__(self, *args, step_scale: float = 1.0, **kwargs):
+    def __init__(
+        self,
+        *args,
+        step_scale: float = 1.0,
+        step_scale_decay: float | None = None,
+        min_step_scale: float = 1.0,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.step_scale = step_scale
+        # A fixed step_scale can find a good region fast (calibrated
+        # large values did, see FINDINGS.md) but then can't refine once
+        # there -- every step is still that same huge size, overshooting
+        # past whatever local improvement might exist. Shrinking on
+        # stall (same on_generation_result pattern as mutation_decay
+        # elsewhere) lets it switch from "leap toward a good area" to
+        # "refine locally" without manually restarting with a different
+        # value. None (default) disables this, matching the calibrated
+        # fixed-value behavior.
+        self.step_scale_decay = step_scale_decay
+        self.min_step_scale = min_step_scale
+
+    def on_generation_result(self, improved: bool) -> None:
+        if self.step_scale_decay is not None and not improved:
+            self.step_scale = max(self.min_step_scale, self.step_scale * self.step_scale_decay)
 
     def mutate(self, parent: Candidate) -> Stimulus:
         if not self._has_enough_history():

@@ -515,6 +515,39 @@ behavior (see next entry) is understood; (3) step_scale=475 is
 specific to this mutation_strength (0.005) and this target/duration --
 not verified to transfer if those change.
 
+## 2026-08-30: the long Watcher run plateaus hard -- a fixed step size can't refine
+
+Launched `long_watcher_run.py` (1000 generations, step_scale=475 fixed)
+to see the real shape of the climb, not just a 30-generation endpoint.
+Caught by the user watching the status file directly: it "got closest
+in the first few gens." Verified independently from the raw
+manifest.csv (recomputing running-best via cummax, not trusting the
+displayed number blindly): true best hit **19.5% of the gap at
+generation 4**, then sat completely flat for **347 straight
+generations** with zero improvement before the run was killed.
+
+Root cause: a fixed step_scale big enough to jump to a good region
+fast (the calibration's whole point) is *also* too big to refine once
+there -- every subsequent mutation is still that same huge step,
+overshooting past whatever local improvement exists regardless of how
+good the estimated direction is. The calibration's 19.49% was
+therefore never a point on a rising curve -- it was the ceiling of one
+lucky early jump, not evidence of continued climbing.
+
+**Fix, not yet validated:** `step_scale_decay` added to
+`GradientSurrogateFakeLatentGenerator` (same `on_generation_result`
+pattern as `mutation_decay` elsewhere) -- shrinks step_scale by 30%
+whenever a generation fails to improve, so the search can switch from
+"leap toward a good area" to "refine locally" automatically instead of
+a fixed value forcing one behavior for the whole run.
+
+Also improved `long_watcher_run.py`'s status reporting on this same
+occasion (the user's direct request after spotting the plateau): now
+tracks `batch_best` (this generation's best *new* candidate) alongside
+`running_best` and a stall counter, not just running_best alone --
+batch_best staying far below running_best for many generations in a
+row is exactly the plateau signal that was invisible before.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
