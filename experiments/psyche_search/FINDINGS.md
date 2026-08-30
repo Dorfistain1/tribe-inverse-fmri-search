@@ -404,6 +404,48 @@ landscape's usable region is. Still the same standing caveat as every
 entry above: this narrows down a real-run candidate, it doesn't
 replace needing one.
 
+**How the ~0.005 number was actually derived** (for anyone re-deriving
+or doubting it later): not read off a single sweep row. Two
+independent methods agreed:
+1. Grid sweep, 10 values from 0.02 down to 0.001, 20 generations each,
+   one run per value -- correlation only becomes non-degenerate below
+   ~0.01 and stays strong (0.72-0.99) across 0.001-0.01, with 0.004
+   giving the best single-run improvement (+0.07).
+2. Meta-search (`meta_search_mutation_strength.py`), which evolves the
+   value itself, averaging 3 repeats/candidate specifically to avoid
+   trusting single noisy runs -- started from a random spread across
+   0.0001-0.022 and collapsed to a stable 0.002-0.008 band within one
+   generation, staying there for the rest of a 6-generation run. Best
+   found: 0.00597.
+
+Per-generation range of the meta-search population (shows the
+collapse happening, not just the end state):
+
+| gen | range (min-max) | mean | best fitness |
+|---|---|---|---|
+| 0 | 0.00011 - 0.02212 | 0.0065 | +0.052 |
+| 1 | 0.00103 - 0.00674 | 0.0047 | +0.057 |
+| 2 | 0.00330 - 0.00821 | 0.0059 | +0.052 |
+| 3 | 0.00169 - 0.00677 | 0.0050 | +0.066 |
+| 4 | 0.00179 - 0.00823 | 0.0055 | +0.069 |
+| 5 | 0.00332 - 0.01139 | 0.0058 | +0.053 |
+
+**Important tension this raises, not yet resolved:** the *real* TRIBE
+run at the old default (0.5) -- the value the fake tier calls
+catastrophically degenerate -- actually produced genuine, monotonic
+improvement for 4 generations (+0.0515 -> +0.1580, see the "first
+real-budget evolutionary run" entry above), reaching more total
+improvement in 3 generations than 20 fake-tier generations at 0.005
+managed (+0.07). A low/negative aggregate parent-child correlation
+doesn't rule out occasional big beneficial jumps driving real progress
+under elitism -- which is exactly what large mutation_strength can do
+that small mutation_strength structurally can't in a short run. So
+"smaller mutation_strength is better" is proven for *local search
+validity* (correlation), not yet for *actually finding good candidates
+faster in a limited generation budget* -- those can point in opposite
+directions, and only a real test at ~0.005 can settle which one wins
+on TRIBE's actual landscape.
+
 ---
 
 *(next entries go here)*
