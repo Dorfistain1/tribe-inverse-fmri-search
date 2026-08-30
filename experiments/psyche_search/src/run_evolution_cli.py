@@ -20,6 +20,7 @@ two copies of either.
 """
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
@@ -55,7 +56,9 @@ def main():
     search = EvolutionarySearch(
         runtime=runtime, generator=generator, target=target, config=config
     )
+    start_time = time.monotonic()
     final_population = search.run(checkpoint_path=CHECKPOINT_PATH, progress=print_progress)
+    elapsed = time.monotonic() - start_time
 
     print()
     print("=== final population, best fitness first ===")
@@ -64,6 +67,8 @@ def main():
             f"  gen={c.generation} fitness={c.fitness:+.4f} "
             f"id={c.stimulus.identifier} file={c.stimulus.source}"
         )
+    print()
+    print(f"Elapsed: {elapsed / 60:.1f} min ({elapsed:.0f}s)")
 
 
 if __name__ == "__main__":
