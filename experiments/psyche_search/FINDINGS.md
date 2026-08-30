@@ -210,15 +210,17 @@ vocals, but that was dropped before ever running it -- this model
 isn't built for voice mimicry (expect generic, possibly mumbled
 quasi-singing, not anything resembling a real singer), so it wasn't
 worth the added risk versus an instrumental prompt that still has
-melody/rhythm to anchor on. No named artist in the prompt either way
-(avoids likeness issues on a public repo). Settled prompt:
-`"upbeat instrumental pop song with drums, bass, and a catchy melody"`.
-Real risk still going in, per AudioGenerator's own docstring: this
-model already produced worse, more incoherent output on precise/
-complex content (tested: EDM drums) than sustained/melodic prompts --
-drums+bass+melody is still a bigger ask than pure ambient. If output
-comes out garbled rather than song-like, that's the expected failure
-mode to watch for, not a bug.
+melody to anchor on. No named artist in the prompt either way (avoids
+likeness issues on a public repo; artists were only ever an example of
+"things a human can tell apart by ear," not a genre request). Also
+dropped "upbeat"/drums from the first draft on a second look -- that's
+exactly the failure mode AudioGenerator's docstring already documents
+(precise/crisp transients, tested: EDM drums, came out worse than
+sustained/melodic content on this model). Settled prompt:
+`"acoustic guitar song with a clear, memorable melody"` -- reuses the
+one prompt already known to render well (docstring: "country acoustic
+guitar song -- clearly better" in earlier ad-hoc testing) instead of
+guessing at a new one.
 
 **Random-baseline comparisons deprioritized.** The next planned work is
 "the Watcher" (see inverse_search/DESIGN.md's deferred v2 section) --

@@ -37,12 +37,13 @@ OUTPUT_DIR = "experiments/psyche_search/data/evolution_run"
 # same regardless of fitness, see FINDINGS.md). No vocals: dropped
 # before ever running the vocal version -- this model isn't built for
 # voice mimicry, and mumbled quasi-singing wasn't worth the risk versus
-# an instrumental prompt that still has real melody/rhythm to judge by
-# ear. Still a real risk per AudioGenerator's docstring: precise/
-# complex content (tested: EDM drums) came out worse than sustained/
-# melodic prompts on this model. If this comes out incoherent rather
-# than song-like, that's a finding to log, not a bug to fix.
-PROMPT = "upbeat instrumental pop song with drums, bass, and a catchy melody"
+# an instrumental prompt that still has real melody to judge by ear.
+# No drums/"upbeat" either, on reflection -- that's exactly the failure
+# mode AudioGenerator's docstring already documents (precise/crisp
+# transients, tested: EDM drums, came out worse than sustained/melodic
+# content on this model). Using its one tested-good example instead:
+# a clear, structured melody without percussive transients.
+PROMPT = "acoustic guitar song with a clear, memorable melody"
 
 
 def print_progress(message: str) -> None:
