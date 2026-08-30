@@ -185,3 +185,24 @@ class EvolutionarySearch:
 
         population.sort(key=lambda c: c.fitness, reverse=True)
         return population
+
+    def run_random_baseline(self) -> list[Candidate]:
+        """Same total evaluation budget as run() (population_size x
+        n_generations candidates), but every candidate is a fresh
+        random draw -- no selection, no mutation. Comparison baseline:
+        per restructure.md section 15, "fitness improved" during a real
+        search doesn't by itself show evolution helped -- it could just
+        be lucky sampling. Run both and compare best-fitness-so-far
+        curves; if random keeps pace with evolutionary, the mutation/
+        selection loop isn't earning its cost.
+        """
+        all_candidates: list[Candidate] = []
+        for generation in range(self.config.n_generations):
+            self.generator.load()
+            stimuli = self.generator.initial_population(self.config.population_size)
+            batch = [Candidate(stimulus=s, generation=generation) for s in stimuli]
+            self._evaluate_batch(batch)
+            all_candidates.extend(batch)
+
+        all_candidates.sort(key=lambda c: c.fitness, reverse=True)
+        return all_candidates

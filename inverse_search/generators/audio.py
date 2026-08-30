@@ -179,10 +179,17 @@ class AudioGenerator(StimulusGenerator):
         return identifier
 
     def initial_population(self, n: int) -> list[Stimulus]:
-        return [
-            self._decode(self._random_latent(seed=i), identifier=self._next_identifier())
-            for i in range(n)
-        ]
+        # Seed from the running counter, not range(n) -- otherwise every
+        # call to initial_population() produces the exact same n latents
+        # (seed=0..n-1 every time), silently duplicating candidates
+        # across repeated calls (e.g. a random-search baseline that
+        # calls this once per "generation" instead of mutating).
+        stimuli = []
+        for _ in range(n):
+            seed = self._counter
+            identifier = self._next_identifier()
+            stimuli.append(self._decode(self._random_latent(seed=seed), identifier=identifier))
+        return stimuli
 
     def mutate(self, parent: Candidate) -> Stimulus:
         parent_latent = parent.stimulus.metadata.get("latent")
