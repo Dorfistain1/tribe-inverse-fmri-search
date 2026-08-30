@@ -580,6 +580,71 @@ is built yet. 20-25% is real, dramatic progress over blind mutation's
 ~0.01-0.02% -- but still far short of anything resembling "sounds
 similar to the target."
 
+## 2026-08-30: a better-designed fake target changes the picture completely
+
+Every fake test above used the same target shape: minimize raw L2
+distance to one specific, arbitrary point in the full ~164,000-dim
+latent space. On reflection (prompted directly by the user questioning
+whether the experiment was a dead end), that target doesn't actually
+match the real task's structure. `network_delta_score` (fitness.py)
+doesn't reward matching a specific point at all -- it rewards pushing
+a FEW bounded summary values (network correlations, each naturally in
+[-1, 1]) as far as possible in a direction. Many different audios
+could score well under that objective; it isn't a single needle in an
+enormous haystack.
+
+Built `inverse_search/sparse_readout.py`: a target using the *real*
+objective's shape instead -- a small number (3) of fixed random
+"readout" directions in latent space, each passed through tanh
+(bounded like a real correlation) and rewarded via the same
+sign-times-value structure network_delta_score actually uses. All
+other ~163,837 dimensions are pure noise to this fitness function --
+sparse, low-effective-dimensional structure, unlike the fully-dense
+distance-to-a-point target where every one of the 164,000 dimensions
+mattered equally.
+
+`compare_sparse_readout.py`, 200 generations, same target both
+conditions:
+
+| generation | blind_fixed | watcher_decay |
+|---|---|---|
+| 0 | 0.23 | 0.23 |
+| 90 | 0.30 | 0.34 (barely ahead) |
+| 100 | 0.30 | 0.39 |
+| 120 | 0.32 | 0.92 |
+| 190 | 0.36 | 1.00 (99.67%) |
+| final | **+0.36** | **+0.9978** |
+
+Blind mutation climbs slowly and roughly linearly the whole time.
+Watcher tracks it closely (barely ahead) through generation ~90, then
+**explodes** -- 0.39 -> 0.66 -> 0.92 -> 0.98 in the next 30
+generations, finishing essentially perfect (99.78% of the theoretical
+ceiling). The flat stretch before ~gen 90 is most likely the
+surrogate accumulating enough history to correctly identify which 3 of
+163,840 directions actually matter; once it does, it converges almost
+immediately. This is a completely different result from every
+distance-to-a-point test above (~20-25% ceiling, plateauing hard) --
+strong evidence that the *earlier target's shape*, not the search
+mechanism itself, was the real bottleneck.
+
+**What this changes:** if TRIBE's real fitness landscape has a
+similarly sparse structure (plausible -- it only cares about a handful
+of specific network-pair correlations, very possibly driven by a
+relatively low-dimensional subset of real audio features, not
+literally all 164,000 latent numbers independently), the Watcher could
+perform far better on the real task than the earlier pessimistic
+ceiling suggested. This makes testing the Watcher against real TRIBE
+(even briefly) considerably more worth doing than it looked a few
+entries ago.
+
+**Standing caveats:** still the fake tier -- this doesn't prove TRIBE's
+real landscape is actually this sparse, only that *if* it is, the
+Watcher can exploit it dramatically well. One run per condition, no
+repeats yet. The specific generation where the breakthrough happens
+(~100 here) is plausibly random (depends on when the right history
+samples happen to accumulate) -- not yet verified as reproducible
+across different random seeds/targets.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
