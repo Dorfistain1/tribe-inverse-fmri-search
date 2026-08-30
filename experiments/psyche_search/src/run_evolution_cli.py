@@ -30,14 +30,17 @@ from inverse_search import EvolutionarySearch, SearchConfig
 from inverse_search.generators.audio import AudioGenerator
 from tribe_core import TribeRuntime
 
-CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "evolution_checkpoint_mut0.1.json"
-OUTPUT_DIR = "experiments/psyche_search/data/evolution_run_mut0.1"
-# 0.5 (AudioGenerator's own default) gave -0.115 real parent-child
-# correlation (FINDINGS.md) and, on the fake tier, needed dropping
-# ~100x before correlation stopped being ~0 (also FINDINGS.md) --
-# testing a real run at a meaningfully smaller value to see if it
-# actually helps on TRIBE's real landscape, not just the fake one.
-MUTATION_STRENGTH = 0.1
+CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "evolution_checkpoint_mut0.02.json"
+OUTPUT_DIR = "experiments/psyche_search/data/evolution_run_mut0.02"
+# 0.1 was the first pick here and got killed almost immediately: it's
+# not actually supported by the sweep data (FINDINGS.md) -- 0.1 sat in
+# the SAME degenerate cluster as the default 0.5 (~0 improvement, ~0
+# correlation) on the fake tier. 0.02 is the smallest value the sweep
+# tested that showed any non-degenerate correlation at all (0.008,
+# weak but present, vs. NaN/0 everywhere above it) -- the better-
+# justified single real test given what we actually measured, not
+# just "cut it by some amount and see."
+MUTATION_STRENGTH = 0.02
 # Structured, not ambient/drone -- a human needs something with melody/
 # rhythm to actually tell candidates apart by ear (drone all sounds the
 # same regardless of fitness, see FINDINGS.md). No vocals: dropped

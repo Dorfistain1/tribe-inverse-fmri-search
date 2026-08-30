@@ -351,12 +351,18 @@ connectivity summary, plausibly much smoother). So this sweep confirms
 0.5 is clearly too large, but its exact numbers don't transfer to
 picking a real mutation_strength value directly.
 
-**Follow-up, real run:** testing `mutation_strength=0.1` (a moderate
-cut, not the fake tier's extreme 0.005) on a real evolutionary search
--- `run_evolution_cli.py`, output now at `data/evolution_run_mut0.1/`,
-checkpoint at `data/evolution_checkpoint_mut0.1.json` -- to see if real
-parent-child correlation improves past the -0.115 baseline measured at
-0.5. Result pending.
+**Follow-up, real run -- corrected mid-flight:** first launched at
+`mutation_strength=0.1`, but killed almost immediately (before it
+finished evaluating even one candidate) on re-reading the sweep table
+above: 0.1 sat in the same degenerate cluster as the default 0.5 (~0
+improvement, ~0 correlation) -- not actually a meaningfully different
+test from the one we already have. Relaunched at `mutation_strength=
+0.02` instead, the smallest sweep value that showed any non-degenerate
+correlation (0.008, weak but present, vs. NaN/0 everywhere above it) --
+a choice the sweep data actually supports, rather than an arbitrary
+"moderate cut." `run_evolution_cli.py`, output at
+`data/evolution_run_mut0.02/`, checkpoint at
+`data/evolution_checkpoint_mut0.02.json`. Result pending.
 
 ---
 
