@@ -106,6 +106,48 @@ duration, not derived -- see generators/audio.py's docstring for the
 comparison points (0.15/0.3 too subtle, 0.5 clearly related-but-
 different, 0.8+ starting to feel unrelated).
 
+## Mutation: partial re-diffusion (v1.5, built, UNTESTED)
+
+A whole session's worth of fake-tier testing (curse-of-dimensionality
+mutation tuning, the Watcher's real breakthrough on a sparse target,
+real acoustic features not correlating with real fitness -- all in
+FINDINGS.md) points at the same root cause: v1's mutation perturbs the
+INITIAL noise latent (x_T) and re-runs the full diffusion trajectory
+from scratch. Diffusion sampling is long and highly nonlinear, so even
+a small change to x_T can produce a wildly different, seemingly
+unrelated final result -- there's no reliable relationship between
+"how far you moved in latent space" and "how different the audio
+sounds." That's a property of mutating x_T specifically, not of
+mutation in general.
+
+`AudioGenerator.mutate_by_rediffusion()` (mutation_mode="rediffusion")
+takes the parent's ACTUAL DECODED AUDIO, encodes it back into latent
+space with the pipeline's own VAE, adds a controlled amount of noise
+corresponding to a specific point partway through the denoising
+schedule, and re-runs only the REMAINING steps -- the standard img2img/
+SDEdit pattern. `redo_fraction` is a direct, controllable dial on edit
+size that v1 never had: near 0 stays close to the parent, near 1 is
+close to a fresh generation.
+
+Confirmed by reading diffusers' source directly (not assumed):
+`StableAudioPipeline` doesn't expose a `strength` parameter itself, and
+its own `initial_audio_waveforms` input -- despite looking like it
+might do this -- actually adds encoded audio as a bias under
+FULL-strength noise and still runs every step (see
+pipeline_stable_audio.py's `prepare_latents`). That's the audio-
+continuation mechanism the deferred duration-extension plan below
+already uses, not a controllable small-edit tool. This method instead
+manually replicates `__call__`'s conditioning/denoising loop over a
+truncated `scheduler.timesteps`, using `add_noise` + `set_begin_index`
+-- `EDMDPMSolverMultistepScheduler`'s own documented pattern for
+exactly this ("add noise is called before first denoising step to
+create initial latent (img2img)", per its source comment).
+
+Built at the end of a long session with no GPU time left to verify --
+next step is literally running `test_rediffusion_mutation.py` (already
+written) and listening to whether edit size actually scales with
+`redo_fraction` the way it should.
+
 ## Testing pyramid: fake generator/runtime before real runs
 
 A real search costs ~80min/30 evaluations (generator + TRIBE reload

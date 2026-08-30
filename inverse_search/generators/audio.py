@@ -99,6 +99,8 @@ class AudioGenerator(StimulusGenerator):
         mutation_decay: float | None = None,
         min_mutation_strength: float = 1e-4,
         stall_patience: int = 5,
+        mutation_mode: str = "latent",
+        redo_fraction: float = 0.3,
     ):
         self.model_root = model_root
         self.prompt = prompt
@@ -106,6 +108,13 @@ class AudioGenerator(StimulusGenerator):
         self.num_inference_steps = num_inference_steps
         self.mutation_strength = mutation_strength
         self.device = device
+        # "latent" (default): mutate()'s original raw-initial-noise
+        # perturbation. "rediffusion": mutate_by_rediffusion()'s
+        # partial-re-diffusion img2img-style edit instead -- see that
+        # method's docstring for why it was added (untested as of
+        # this constructor change; verify before relying on it).
+        self.mutation_mode = mutation_mode
+        self.redo_fraction = redo_fraction
         # Adaptive step size (evolution strategies' "1/5 success
         # rule"): shrink mutation_strength when a generation fails to
         # beat the previous best. None (default) keeps mutation_strength
@@ -240,6 +249,8 @@ class AudioGenerator(StimulusGenerator):
         return stimuli
 
     def mutate(self, parent: Candidate) -> Stimulus:
+        if self.mutation_mode == "rediffusion":
+            return self.mutate_by_rediffusion(parent, redo_fraction=self.redo_fraction)
         parent_latent = parent.stimulus.metadata.get("latent")
         if parent_latent is None:
             raise ValueError(
@@ -263,3 +274,167 @@ class AudioGenerator(StimulusGenerator):
                 self.min_mutation_strength, self.mutation_strength * self.mutation_decay
             )
             self._consecutive_stalls = 0
+
+    def mutate_by_rediffusion(self, parent: Candidate, redo_fraction: float = 0.3) -> Stimulus:
+        """Real partial-re-diffusion mutation (SDEdit/img2img-style),
+        as an alternative to mutate()'s raw-initial-noise perturbation.
+
+        UNTESTED as of the commit that added this -- built at the end
+        of a long session specifically to be verified next time this
+        project is picked up. Ported by hand from diffusers' standard
+        img2img pattern (e.g. StableDiffusionImg2ImgPipeline) since
+        StableAudioPipeline doesn't expose a `strength` parameter of
+        its own. Its own `initial_audio_waveforms` input does NOT do
+        this despite the superficial similarity -- it adds encoded
+        audio as a bias under FULL-strength noise and still runs every
+        step (see diffusers' pipeline_stable_audio.py's
+        prepare_latents), which is really the audio-continuation
+        mechanism DESIGN.md's duration-extension plan already uses,
+        not a controllable small-edit tool. Confirmed by reading that
+        source directly, not assumed.
+
+        Why this exists: mutate() adds Gaussian noise to the INITIAL
+        noise latent (x_T) and re-runs the FULL num_inference_steps
+        denoising trajectory from scratch. Diffusion sampling is a
+        long, highly nonlinear iterative process, so even a small
+        change to x_T can produce a wildly different, seemingly
+        unrelated final result -- the empirical pattern across this
+        whole project (curse-of-dimensionality mutation tuning, the
+        sparse-readout "best" sounding nearly identical to "start"
+        despite 99% fitness, real fitness not correlating with basic
+        acoustic features) is consistent with this being the actual
+        root cause, not a search-algorithm weakness (see FINDINGS.md).
+
+        This method instead: takes the PARENT'S ACTUAL DECODED AUDIO
+        (not its stored initial-noise latent), encodes it back into
+        latent space with the same VAE the pipeline already uses, adds
+        a controlled amount of noise corresponding to a specific point
+        partway through the denoising schedule, and re-runs only the
+        REMAINING steps from there. redo_fraction is a direct,
+        controllable dial on edit magnitude that raw-noise mutation
+        never had: near 0 keeps the result close to the parent, near 1
+        is close to a fresh generation (all num_inference_steps steps
+        redone from full noise).
+
+        Returned Stimulus's metadata still has a "latent" key, but it
+        is now the CLEAN, decoded-space latent this method produced
+        (not an initial-noise latent) -- mixing outputs of this method
+        and mutate() in the same lineage would be mutating
+        incompatible things. Pick one mutation strategy per run.
+        """
+        import soundfile as sf
+        from diffusers.models.embeddings import get_1d_rotary_pos_embed
+
+        pipe = self.load()
+        device = self.device
+        guidance_scale = 7.0  # matches _decode()'s pipe() calls, which never override this default
+        do_cfg = guidance_scale > 1.0
+
+        # 1. Encode the parent's actual audio back to latent space --
+        # the real content being edited, not the abstract initial-noise
+        # latent stored in metadata (that's x_T, this needs real x_0-ish
+        # content). Padding/channel handling mirrors prepare_latents'
+        # handling of initial_audio_waveforms in pipeline_stable_audio.py.
+        audio_np, _sr = sf.read(parent.stimulus.source)
+        if audio_np.ndim == 1:
+            audio_np = audio_np[:, None]
+        audio_tensor = torch.from_numpy(audio_np.T.copy()).to(device=device, dtype=pipe.vae.dtype)
+        audio_tensor = audio_tensor.unsqueeze(0)  # (1, channels, samples)
+
+        audio_channels = pipe.vae.config.audio_channels
+        if audio_tensor.shape[1] == 1 and audio_channels == 2:
+            audio_tensor = audio_tensor.repeat(1, 2, 1)
+        elif audio_tensor.shape[1] == 2 and audio_channels == 1:
+            audio_tensor = audio_tensor.mean(1, keepdim=True)
+
+        audio_vae_length = int(pipe.transformer.config.sample_size) * pipe.vae.hop_length
+        padded = audio_tensor.new_zeros((1, audio_channels, audio_vae_length))
+        length = min(audio_tensor.shape[-1], audio_vae_length)
+        padded[:, :, :length] = audio_tensor[:, :, :length]
+
+        seed_generator = torch.Generator(device).manual_seed(0)
+        encoded_latents = pipe.vae.encode(padded).latent_dist.sample(seed_generator)
+
+        # 2. Conditioning -- reuses the pipeline's own encode_prompt/
+        # encode_duration rather than reimplementing them, specifically
+        # to reduce the chance of a subtle mismatch bug in a method
+        # that can't be tested until tomorrow. batch_size=1,
+        # num_waveforms_per_prompt=1 always here, so this skips
+        # __call__'s repeat/view calls for multi-waveform batches --
+        # those are no-ops at batch size 1 anyway.
+        prompt_embeds = pipe.encode_prompt(self.prompt, device, do_cfg, negative_prompt=None)
+        seconds_start_hidden, seconds_end_hidden = pipe.encode_duration(
+            0.0, self.duration_s, device, False, 1  # False: matches __call__ when no negative prompt is used
+        )
+        text_audio_duration_embeds = torch.cat(
+            [prompt_embeds, seconds_start_hidden, seconds_end_hidden], dim=1
+        )
+        audio_duration_embeds = torch.cat([seconds_start_hidden, seconds_end_hidden], dim=2)
+        if do_cfg:
+            negative_text_audio_duration_embeds = torch.zeros_like(text_audio_duration_embeds)
+            text_audio_duration_embeds = torch.cat(
+                [negative_text_audio_duration_embeds, text_audio_duration_embeds], dim=0
+            )
+            audio_duration_embeds = torch.cat([audio_duration_embeds, audio_duration_embeds], dim=0)
+
+        # 3. Truncated schedule: only denoise the last
+        # redo_fraction*num_inference_steps steps, starting from the
+        # encoded content plus noise matched to that starting point --
+        # the actual img2img mechanism (add_noise + set_begin_index is
+        # diffusers' own documented pattern for this, confirmed by
+        # reading scheduling_edm_dpmsolver_multistep.py directly, not
+        # assumed).
+        pipe.scheduler.set_timesteps(self.num_inference_steps, device=device)
+        full_timesteps = pipe.scheduler.timesteps
+        init_timestep = min(round(self.num_inference_steps * redo_fraction), self.num_inference_steps)
+        t_start = max(self.num_inference_steps - init_timestep, 0)
+        timesteps = full_timesteps[t_start:]
+        pipe.scheduler.set_begin_index(t_start)
+
+        noise = torch.randn(
+            encoded_latents.shape, generator=seed_generator, device=device, dtype=encoded_latents.dtype
+        )
+        latents = pipe.scheduler.add_noise(encoded_latents, noise, timesteps[:1])
+
+        # 4. Denoising loop over the truncated schedule only -- same
+        # per-step logic as StableAudioPipeline.__call__, minus the
+        # progress bar/callback machinery this doesn't need.
+        rotary_embedding = get_1d_rotary_pos_embed(
+            pipe.rotary_embed_dim,
+            latents.shape[2] + audio_duration_embeds.shape[1],
+            use_real=True,
+            repeat_interleave_real=False,
+        )
+        for t in timesteps:
+            latent_model_input = torch.cat([latents] * 2) if do_cfg else latents
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+            noise_pred = pipe.transformer(
+                latent_model_input,
+                t.unsqueeze(0),
+                encoder_hidden_states=text_audio_duration_embeds,
+                global_hidden_states=audio_duration_embeds,
+                rotary_embedding=rotary_embedding,
+                return_dict=False,
+            )[0]
+            if do_cfg:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            latents = pipe.scheduler.step(noise_pred, t, latents).prev_sample
+
+        # 5. Decode and trim to the exact requested duration, matching
+        # __call__'s own post-processing (waveform_start/end).
+        audio = pipe.vae.decode(latents).sample
+        waveform_end = int(self.duration_s * pipe.vae.config.sampling_rate)
+        audio = audio[:, :, :waveform_end]
+
+        identifier = self._identifier_for(latents)
+        audio_out = audio[0].float().cpu().numpy().T
+        path = self.output_dir / f"{identifier}.wav"
+        sf.write(str(path), audio_out, SAMPLE_RATE)
+
+        return Stimulus(
+            identifier=identifier,
+            modality="audio",
+            source=str(path),
+            metadata={"latent": latents.detach().to("cpu")},
+        )

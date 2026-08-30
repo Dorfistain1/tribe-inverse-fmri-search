@@ -691,6 +691,50 @@ is capable of producing perceptible change, isolated from the separate
 question of whether TRIBE's real landscape rewards anything perceptible
 at all.
 
+## 2026-08-31: diagnosing WHY fitness doesn't map to audible change -- and a real fix, untested
+
+Direct user pushback tied together everything from the last several
+entries: the sparse-readout "best" sounding 99.9%-identical to "start"
+despite 99% fitness, and real fitness not correlating with acoustic
+features, both point at the same root cause -- not a weak search
+algorithm, but *what's being mutated*. All mutation so far (`mutate()`)
+perturbs the diffusion model's INITIAL noise latent (x_T) and re-runs
+the full ~40-step denoising trajectory from scratch. Diffusion sampling
+is a long, highly nonlinear process -- there's no reliable relationship
+between "how far you moved in x_T" and "how different the final audio
+sounds." Small moves can do nothing (curse of dimensionality, matches
+the mutation_strength tuning entries), and once a move is big enough to
+matter, it does so unpredictably (matches the step_scale overshoot
+collapse entry). This is a property of mutating x_T specifically, not
+evidence mutation/evolution can't work at all.
+
+**The fix** (built, not yet tested -- it was late, verification is
+next session's first task): `AudioGenerator.mutate_by_rediffusion()`,
+a real, standard img2img/SDEdit-style partial re-diffusion, ported by
+hand from diffusers' own pattern since `StableAudioPipeline` doesn't
+expose a `strength` parameter. Confirmed by reading the actual
+diffusers source (not assumed) that the pipeline's own
+`initial_audio_waveforms` input does NOT do this despite looking
+similar -- it adds encoded audio as a bias under full-strength noise
+and still runs every step, which is really the audio-continuation
+mechanism, not a controllable edit. The real mechanism: encode the
+parent's actual decoded audio back to latent space, add noise
+corresponding to a specific point partway through the schedule
+(`scheduler.add_noise` + `set_begin_index`, the scheduler's own
+documented img2img pattern), and only redo the remaining steps.
+`redo_fraction` becomes a direct, controllable knob on edit size --
+something raw-noise mutation never had at all.
+
+Also built `test_rediffusion_mutation.py` -- generates one real
+candidate and mutates it at several `redo_fraction` values, ready to
+run and listen to first thing next session. Expected signature of
+success: edit size visibly/audibly scales with `redo_fraction` (small
+= subtle variation, large = bigger change) -- something no version of
+raw-latent mutation ever demonstrated all session. If it's broken, the
+manually-ported conditioning/denoising loop is the most likely place
+(shape mismatches, wrong scheduler state) -- flagged clearly in the
+method's own docstring for whoever debugs it next.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
