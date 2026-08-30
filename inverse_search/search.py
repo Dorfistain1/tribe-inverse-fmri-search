@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from inverse_search import checkpoint
 from inverse_search.candidate import Candidate
 from inverse_search.fitness import network_delta_score
 from inverse_search.generators.base import StimulusGenerator
@@ -15,12 +16,21 @@ from tribe_core import BrainPrediction, TribeRuntime
 
 @dataclass
 class SearchConfig:
-    population_size: int = 20
-    n_generations: int = 10
+    # Defaults sized for this project's actual 8GB dev card, not
+    # textbook GA values: population_size=20/n_generations=10 (the
+    # previous defaults) measured out to ~7-8 hours end to end here,
+    # because generator+TRIBE fully reload every generation (see
+    # EvolutionarySearch._evaluate_batch's docstring) -- a ~2-2.5min
+    # fixed tax per round regardless of population size, plus
+    # ~2-2.5min/candidate. 6x5 = 30 evaluations, ~80min, a size someone
+    # will actually wait for. Override for a real overnight run.
+    population_size: int = 6
+    n_generations: int = 5
     elite_fraction: float = 0.2
 
 
 FitnessFn = Callable[[BrainPrediction, NeuralTarget], float]
+ProgressFn = Callable[[str], None]
 
 
 def _skip_audio_transcription() -> None:
@@ -143,7 +153,9 @@ class EvolutionarySearch:
         _organize_candidate_file(candidate, self.generator)
         return candidate.fitness
 
-    def _evaluate_batch(self, candidates: list[Candidate]) -> None:
+    def _evaluate_batch(
+        self, candidates: list[Candidate], progress: ProgressFn | None = None
+    ) -> None:
         """Generator and TRIBE together don't fit on hardware like this
         project's 8GB dev card (DESIGN.md's sequential-load plan), so
         this always unloads the generator before evaluating and unloads
@@ -151,42 +163,118 @@ class EvolutionarySearch:
         side costs nothing (generators/base.py's default load/unload are
         no-ops; unload() is a no-op with no model loaded)."""
         self.generator.unload()
-        for candidate in candidates:
+        for i, candidate in enumerate(candidates):
             self.evaluate(candidate)
+            if progress:
+                progress(
+                    f"  evaluated {i + 1}/{len(candidates)}: "
+                    f"{candidate.stimulus.identifier} fitness={candidate.fitness:+.4f}"
+                )
         if self.runtime is not None:
             self.runtime.unload()
 
-    def run(self) -> list[Candidate]:
+    def run(
+        self,
+        checkpoint_path: str | Path | None = None,
+        progress: ProgressFn | None = None,
+    ) -> list[Candidate]:
         """Run the full search, returning the final population sorted
-        by fitness descending."""
-        self.generator.load()
-        initial_stimuli = self.generator.initial_population(self.config.population_size)
-        population = [Candidate(stimulus=s, generation=0) for s in initial_stimuli]
-        self._evaluate_batch(population)
+        by fitness descending.
 
-        for generation in range(1, self.config.n_generations):
-            population.sort(key=lambda c: c.fitness, reverse=True)
-            n_elite = max(1, round(len(population) * self.config.elite_fraction))
-            elites = population[:n_elite]
+        checkpoint_path, if given, enables pause/resume:
+          - if a checkpoint already exists there, resumes from it
+            instead of starting fresh (population_size/n_generations/
+            etc for the resumed run come from *this* SearchConfig, not
+            anything stored in the checkpoint -- only progress is
+            persisted, not parameters).
+          - saves after every fully-completed generation, so a crash or
+            an ungraceful kill (e.g. closing the terminal window rather
+            than Ctrl+C) loses at most the in-progress generation, never
+            everything already done.
+          - on a clean KeyboardInterrupt (Ctrl+C), saves immediately and
+            returns the current population instead of raising.
 
-            self.generator.load()
-            children = []
-            while len(elites) + len(children) < self.config.population_size:
-                parent = random.choice(elites)
-                child_stimulus = self.generator.mutate(parent)
-                children.append(Candidate(
-                    stimulus=child_stimulus,
-                    generation=generation,
-                    parent_id=parent.stimulus.identifier,
-                ))
-            self._evaluate_batch(children)
+        progress, if given, is called with short human-readable status
+        lines -- for a CLI or any other live display. Purely a UI hook.
+        """
 
-            population = elites + children
+        def notify(msg: str) -> None:
+            if progress:
+                progress(msg)
+
+        start_generation = 0
+        population: list[Candidate] = []
+
+        if checkpoint_path is not None and checkpoint.exists(checkpoint_path):
+            start_generation, population = checkpoint.load(checkpoint_path)
+            self.generator.resume_from(population)
+            notify(
+                f"resumed from checkpoint: generation {start_generation}, "
+                f"{len(population)} candidates"
+            )
+
+        try:
+            if not population:
+                notify(f"generation 0/{self.config.n_generations}: generating initial population")
+                self.generator.load()
+                initial_stimuli = self.generator.initial_population(self.config.population_size)
+                initial_batch = [Candidate(stimulus=s, generation=0) for s in initial_stimuli]
+
+                notify(f"generation 0/{self.config.n_generations}: evaluating")
+                self._evaluate_batch(initial_batch, notify)
+
+                population = initial_batch
+                start_generation = 1
+                if checkpoint_path is not None:
+                    checkpoint.save(checkpoint_path, start_generation, population)
+
+            for generation in range(start_generation, self.config.n_generations):
+                population.sort(key=lambda c: c.fitness, reverse=True)
+                n_elite = max(1, round(len(population) * self.config.elite_fraction))
+                elites = population[:n_elite]
+                n_children = self.config.population_size - len(elites)
+
+                notify(
+                    f"generation {generation}/{self.config.n_generations}: "
+                    f"generating {n_children} children from {len(elites)} elite(s)"
+                )
+                self.generator.load()
+                children = []
+                while len(elites) + len(children) < self.config.population_size:
+                    parent = random.choice(elites)
+                    child_stimulus = self.generator.mutate(parent)
+                    children.append(Candidate(
+                        stimulus=child_stimulus,
+                        generation=generation,
+                        parent_id=parent.stimulus.identifier,
+                    ))
+
+                notify(f"generation {generation}/{self.config.n_generations}: evaluating")
+                self._evaluate_batch(children, notify)
+
+                population = elites + children
+                if checkpoint_path is not None:
+                    checkpoint.save(checkpoint_path, generation + 1, population)
+
+                best = max(c.fitness for c in population)
+                notify(
+                    f"generation {generation}/{self.config.n_generations}: "
+                    f"done, best fitness so far = {best:+.4f}"
+                )
+
+        except KeyboardInterrupt:
+            if checkpoint_path is not None and population:
+                checkpoint.save(checkpoint_path, start_generation, population)
+                notify(f"\nPaused (Ctrl+C). Checkpoint saved to {checkpoint_path}.")
+                notify("Run the same command again to resume.")
+            else:
+                notify("\nInterrupted before any generation finished -- nothing to resume from.")
+            return sorted(population, key=lambda c: c.fitness, reverse=True)
 
         population.sort(key=lambda c: c.fitness, reverse=True)
         return population
 
-    def run_random_baseline(self) -> list[Candidate]:
+    def run_random_baseline(self, progress: ProgressFn | None = None) -> list[Candidate]:
         """Same total evaluation budget as run() (population_size x
         n_generations candidates), but every candidate is a fresh
         random draw -- no selection, no mutation. Comparison baseline:
@@ -195,13 +283,24 @@ class EvolutionarySearch:
         be lucky sampling. Run both and compare best-fitness-so-far
         curves; if random keeps pace with evolutionary, the mutation/
         selection loop isn't earning its cost.
+
+        No checkpoint/resume support -- less critical for a comparison
+        run than for the main search; add it the same way as run() if
+        that changes.
         """
+
+        def notify(msg: str) -> None:
+            if progress:
+                progress(msg)
+
         all_candidates: list[Candidate] = []
         for generation in range(self.config.n_generations):
+            notify(f"baseline generation {generation}/{self.config.n_generations}: generating")
             self.generator.load()
             stimuli = self.generator.initial_population(self.config.population_size)
             batch = [Candidate(stimulus=s, generation=generation) for s in stimuli]
-            self._evaluate_batch(batch)
+            notify(f"baseline generation {generation}/{self.config.n_generations}: evaluating")
+            self._evaluate_batch(batch, notify)
             all_candidates.extend(batch)
 
         all_candidates.sort(key=lambda c: c.fitness, reverse=True)

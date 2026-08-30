@@ -40,3 +40,15 @@ class StimulusGenerator(ABC):
 
     def unload(self) -> None:
         """Free whatever load() loaded. No-op by default."""
+
+    def resume_from(self, population: list[Candidate]) -> None:
+        """Called once, right after loading a checkpoint (search.py's
+        run()), before generating anything new. Lets a generator avoid
+        identifier collisions with candidates from before the pause --
+        e.g. a fresh instance's internal counter starting back at 0 and
+        reusing an identifier some *different*, already-discarded
+        candidate from before the pause also had. That's not just
+        cosmetic: TribeRuntime's prediction cache is keyed on
+        stimulus.identifier, so a reused identifier can silently return
+        a cached prediction for the wrong audio. No-op by default --
+        override if the generator has internal state like a counter."""

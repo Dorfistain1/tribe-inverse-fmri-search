@@ -14,6 +14,7 @@ re-derive it the same way rather than guessing.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import torch
@@ -139,6 +140,19 @@ class AudioGenerator(StimulusGenerator):
             del self._pipe
             self._pipe = None
             torch.cuda.empty_cache()
+
+    def resume_from(self, population: list[Candidate]) -> None:
+        """Advance self._counter past whatever cand_NNNN identifiers
+        are already in the resumed population, so new candidates from
+        this (fresh) instance can't collide with theirs -- see
+        generators/base.py's resume_from docstring for why that matters
+        beyond cosmetics (cache-key correctness)."""
+        max_seen = -1
+        for candidate in population:
+            match = re.fullmatch(r"cand_(\d+)", candidate.stimulus.identifier)
+            if match:
+                max_seen = max(max_seen, int(match.group(1)))
+        self._counter = max_seen + 1
 
     def _random_latent(self, seed: int) -> torch.Tensor:
         generator = torch.Generator(self.device).manual_seed(seed)
