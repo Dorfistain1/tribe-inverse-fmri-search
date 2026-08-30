@@ -52,8 +52,9 @@ N_GENERATIONS = 1000
 POPULATION = 6
 MUTATION_STRENGTH = 0.005
 STEP_SCALE = 475  # peak of tune_watcher_v2.py's calibration (350-550 sweep)
-STEP_SCALE_DECAY = 0.7  # shrink by 30% whenever a generation fails to improve
+STEP_SCALE_DECAY = 0.7  # shrink by 30% after enough consecutive non-improving generations
 MIN_STEP_SCALE = 1.0
+STALL_PATIENCE = 5  # only decay after this many CONSECUTIVE stalled generations
 BASELINE_DISTANCE = 572.07
 
 OUT_DIR = Path("experiments/psyche_search/data/long_watcher_run")
@@ -73,6 +74,7 @@ def main():
         step_scale=STEP_SCALE,
         step_scale_decay=STEP_SCALE_DECAY,
         min_step_scale=MIN_STEP_SCALE,
+        stall_patience=STALL_PATIENCE,
         output_dir=str(OUT_DIR),
     )
     target_latent = FakeLatentGenerator(duration_s=DURATION_S)._random_latent(seed=TARGET_SEED)

@@ -150,6 +150,7 @@ class GradientSurrogateFakeLatentGenerator(_SurrogateBase):
         step_scale: float = 1.0,
         step_scale_decay: float | None = None,
         min_step_scale: float = 1.0,
+        stall_patience: int = 5,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -165,10 +166,28 @@ class GradientSurrogateFakeLatentGenerator(_SurrogateBase):
         # fixed-value behavior.
         self.step_scale_decay = step_scale_decay
         self.min_step_scale = min_step_scale
+        # Decaying on every single non-improving generation is too
+        # aggressive -- failing to improve for a while during normal
+        # exploration is completely ordinary, not a sign to shrink.
+        # Measured directly: with patience=1 (the first attempt),
+        # step_scale collapsed to its floor within ~18 generations and
+        # the run scored *worse* than the un-decayed fixed version (see
+        # FINDINGS.md). Only decay after this many CONSECUTIVE
+        # non-improving generations, resetting the count on any
+        # improvement.
+        self.stall_patience = stall_patience
+        self._consecutive_stalls = 0
 
     def on_generation_result(self, improved: bool) -> None:
-        if self.step_scale_decay is not None and not improved:
+        if self.step_scale_decay is None:
+            return
+        if improved:
+            self._consecutive_stalls = 0
+            return
+        self._consecutive_stalls += 1
+        if self._consecutive_stalls >= self.stall_patience:
             self.step_scale = max(self.min_step_scale, self.step_scale * self.step_scale_decay)
+            self._consecutive_stalls = 0
 
     def mutate(self, parent: Candidate) -> Stimulus:
         if not self._has_enough_history():

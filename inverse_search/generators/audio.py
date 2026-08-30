@@ -98,6 +98,7 @@ class AudioGenerator(StimulusGenerator):
         device: str = "cuda",
         mutation_decay: float | None = None,
         min_mutation_strength: float = 1e-4,
+        stall_patience: int = 5,
     ):
         self.model_root = model_root
         self.prompt = prompt
@@ -113,6 +114,13 @@ class AudioGenerator(StimulusGenerator):
         # was tested first (cheap, no GPU) before adding it here too.
         self.mutation_decay = mutation_decay
         self.min_mutation_strength = min_mutation_strength
+        # Only decay after this many CONSECUTIVE non-improving
+        # generations, not on every single one -- measured directly
+        # (watcher_fake.py's step_scale_decay, FINDINGS.md) that
+        # decaying on every stall collapses the value within ~18
+        # generations even during normal exploration.
+        self.stall_patience = stall_patience
+        self._consecutive_stalls = 0
         self.output_dir = Path(
             output_dir or "experiments/psyche_search/data/candidates"
         )
@@ -244,7 +252,14 @@ class AudioGenerator(StimulusGenerator):
         return self._decode(child_latent, identifier=self._identifier_for(child_latent))
 
     def on_generation_result(self, improved: bool) -> None:
-        if self.mutation_decay is not None and not improved:
+        if self.mutation_decay is None:
+            return
+        if improved:
+            self._consecutive_stalls = 0
+            return
+        self._consecutive_stalls += 1
+        if self._consecutive_stalls >= self.stall_patience:
             self.mutation_strength = max(
                 self.min_mutation_strength, self.mutation_strength * self.mutation_decay
             )
+            self._consecutive_stalls = 0

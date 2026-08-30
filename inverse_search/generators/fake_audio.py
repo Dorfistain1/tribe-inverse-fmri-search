@@ -37,6 +37,7 @@ class FakeLatentGenerator(StimulusGenerator):
         output_dir: str | None = None,
         mutation_decay: float | None = None,
         min_mutation_strength: float = 1e-4,
+        stall_patience: int = 5,
     ):
         self.duration_s = duration_s
         self.mutation_strength = mutation_strength
@@ -49,6 +50,14 @@ class FakeLatentGenerator(StimulusGenerator):
         # was added.
         self.mutation_decay = mutation_decay
         self.min_mutation_strength = min_mutation_strength
+        # Decaying on every single non-improving generation collapses
+        # the step size within a couple dozen generations even during
+        # normal exploration -- measured directly on step_scale_decay
+        # in watcher_fake.py (see FINDINGS.md), same fix applied here
+        # pre-emptively. Only decay after this many CONSECUTIVE
+        # non-improving generations.
+        self.stall_patience = stall_patience
+        self._consecutive_stalls = 0
         # Optional, matching AudioGenerator's attribute of the same
         # name: if set, search.py's _organize_candidate_file logs a
         # manifest.csv row per candidate (identifier/generation/parent/
@@ -102,7 +111,14 @@ class FakeLatentGenerator(StimulusGenerator):
         return self._wrap((parent_latent + noise).to(torch.float16))
 
     def on_generation_result(self, improved: bool) -> None:
-        if self.mutation_decay is not None and not improved:
+        if self.mutation_decay is None:
+            return
+        if improved:
+            self._consecutive_stalls = 0
+            return
+        self._consecutive_stalls += 1
+        if self._consecutive_stalls >= self.stall_patience:
             self.mutation_strength = max(
                 self.min_mutation_strength, self.mutation_strength * self.mutation_decay
             )
+            self._consecutive_stalls = 0
