@@ -63,17 +63,26 @@ class AudioGenerator(StimulusGenerator):
     fix. Keep clips short; that's also what keeps a full search
     generation fast enough to be usable.
 
-    prompt default (plain "ambient music") reflects a real finding, not
-    just a placeholder: prompts calling for crisp, precisely-timed
-    drums (tested: "upbeat electronic dance music") produced noticeably
+    prompt default is "acoustic guitar song with a clear, memorable
+    melody" -- NOT the earlier "ambient music", which turned out to
+    deterministically produce near-silent output on this model (peak
+    amplitude ~6e-5, i.e. digital silence, reproduced twice on the same
+    latent). Discovered via a fake-search reference-clip decode that
+    came out with nothing audible; swapping only the prompt on the
+    identical latent fixed it (peak jumped to 0.28). Root cause
+    unconfirmed -- plausibly the model's training data tags some very
+    quiet/droning tracks as "ambient", so it's not necessarily a bug in
+    the model so much as a bad prompt choice on our part. Whatever the
+    cause, don't use "ambient music" verbatim as a prompt with this
+    model.
+
+    More generally: prompts calling for crisp, precisely-timed drums
+    (tested: "upbeat electronic dance music") produced noticeably
     worse, more incoherent output than sustained/melodic prompts
     (tested: "country acoustic guitar song" -- clearly better) at the
     same settings. Likely a general diffusion-audio-model weakness
     (precise transients are harder than sustained texture), not
-    specific to this prompt wording. Conveniently, sustained/atmospheric
-    material is also the natural fit for psyche_search's actual target
-    anyway -- so favor ambient/sustained prompts over drum-heavy ones
-    when choosing what to search over.
+    specific to this prompt wording.
     """
 
     modality = "audio"
@@ -81,7 +90,7 @@ class AudioGenerator(StimulusGenerator):
     def __init__(
         self,
         model_root: str = "G:/AI_Models",
-        prompt: str = "ambient music",
+        prompt: str = "acoustic guitar song with a clear, memorable melody",
         duration_s: float = 5.0,
         num_inference_steps: int = 40,
         mutation_strength: float = 0.5,

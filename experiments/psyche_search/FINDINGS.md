@@ -287,4 +287,44 @@ does.
 
 ---
 
+## 2026-08-30: AudioGenerator's default prompt produced silent audio
+
+**What happened:** the 3 fake-search reference clips above came out
+completely silent (peak amplitude ~6e-5, i.e. digital silence) --
+caught by the user, not by any check on my end. Confirmed with
+`soundfile`: not a playback/player issue, the files themselves had no
+signal.
+
+**Root cause:** `AudioGenerator.__init__`'s own default,
+`prompt="ambient music"`, deterministically produces near-silent
+output on this model. Verified directly: decoded the exact same latent
+twice with that prompt (peak 6e-5 both times, reproducible), then
+decoded it a third time with a different prompt and got peak 0.28 --
+normal levels. Every other script in this project (run_evolution_cli,
+run_baseline_cli, compare_baseline) always passes an explicit prompt,
+so nothing had hit this bare default before; `run_fake_search_cli.py`
+forgot to override it for its reference-clip decode, exposing it for
+the first time. Root cause of *why* this specific prompt is
+near-silent on this model is unconfirmed -- plausibly the model's
+training data tags some genuinely very quiet/droning tracks as
+"ambient," so it may not be a bug in the model so much as a bad prompt
+choice on our part.
+
+**Fix:** changed `AudioGenerator`'s default prompt to
+`"acoustic guitar song with a clear, memorable melody"` (already the
+project's standard working prompt everywhere else), and made
+`run_fake_search_cli.py` pass it explicitly too so it can't silently
+regress if the class default ever changes again for an unrelated
+reason. Re-decoded the 3 reference clips -- now peak ~0.28 each, real
+audio.
+
+**Process note:** this took far longer to track down than it should
+have, partly because of repeated bad time estimates on background GPU
+work (see also the earlier "your machine does not support symlinks"/
+network-stall investigation the same day) -- worth being more
+conservative about promising specific completion times for anything
+involving model loading or decoding on this hardware.
+
+---
+
 *(next entries go here)*

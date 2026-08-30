@@ -56,6 +56,13 @@ from inverse_search.generators.audio import AudioGenerator
 from inverse_search.generators.fake_audio import FakeLatentGenerator
 
 OUTPUT_DIR = Path("experiments/psyche_search/data/fake_search")
+# Explicit, not just AudioGenerator's own default -- its old default
+# ("ambient music") turned out to deterministically produce near-
+# silent output on this model (see audio.py's docstring and
+# FINDINGS.md). The default's fixed now too, but being explicit here
+# means this script can't go silent again just because that default
+# changes for some other reason later.
+PROMPT = "acoustic guitar song with a clear, memorable melody"
 DURATION_S = 5.0
 MUTATION_STRENGTH = 0.5  # matched to AudioGenerator's default, for a fair comparison
 TARGET_SEED = 999_999  # arbitrary, just needs to be outside the run's own seed range
@@ -140,7 +147,9 @@ def main():
     print()
     print("Decoding 3 reference clips with the real AudioGenerator "
           "(target / start / best)...")
-    real_gen = AudioGenerator(model_root=MODEL_ROOT, duration_s=DURATION_S, output_dir=str(OUTPUT_DIR))
+    real_gen = AudioGenerator(
+        model_root=MODEL_ROOT, prompt=PROMPT, duration_s=DURATION_S, output_dir=str(OUTPUT_DIR)
+    )
     real_gen.load()
     target_stim = real_gen.decode_latent(
         target_latent.to(real_gen.device), identifier="reference_target"
