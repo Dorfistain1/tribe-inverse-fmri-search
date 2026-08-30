@@ -3,7 +3,8 @@
 > Implementation status and research grounding: see `restructure.md`
 > (research notes + open decisions specific to this experiment) and
 > `../../inverse_search/DESIGN.md` (the shared search engine's
-> pipeline, current vs. deferred approach, and why).
+> pipeline, current vs. deferred approach, and why). Actual run
+> results go in `FINDINGS.md`, including negative/inconclusive ones.
 
 ## Concept
 

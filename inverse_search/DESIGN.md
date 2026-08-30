@@ -106,7 +106,7 @@ duration, not derived -- see generators/audio.py's docstring for the
 comparison points (0.15/0.3 too subtle, 0.5 clearly related-but-
 different, 0.8+ starting to feel unrelated).
 
-## Deferred: surrogate-model-guided search (v2)
+## Deferred: surrogate-model-guided search (v2) -- "the Watcher"
 
 Instead of randomly perturbing the latent, build a model of "these
 latent settings -> this fitness score" from every candidate evaluated
@@ -114,6 +114,13 @@ so far, and use that model to pick the next candidate to try --
 Bayesian optimization, in the same spirit as "The Automatic
 Neuroscientist" (restructure.md section 18, a real closed-loop fMRI
 optimization paper that did exactly this instead of random search).
+
+Named "the Watcher" from how this was first floated: a second model
+that watches the search run and its fitness history, and recommends
+what to try next instead of blind (random-noise) mutation. What's
+described below is the concrete, buildable version of that idea --
+not a general-purpose advisor AI, specifically a surrogate fitness
+model + acquisition function.
 
 Why deferred, not abandoned: real added complexity (a Gaussian process
 or small neural surrogate, an acquisition function, etc.) versus "add

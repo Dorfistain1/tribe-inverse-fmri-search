@@ -1,0 +1,145 @@
+# Findings
+
+Running log of actual results from this experiment, in the order they
+happened. Each entry: what was run, what came out, what it does and
+doesn't show. Negative/inconclusive results get logged here too, not
+just wins -- the point of publishing this is the real record, not a
+highlight reel.
+
+---
+
+## 2026-08-30: evolutionary search vs. random baseline (first comparison)
+
+**Setup:** `compare_baseline.py`. Both methods given the same budget:
+population 4, 3 generations (12 evaluations each). Prompt "ambient
+drone music, sustained atmospheric pads". `mutation_strength=0.5`
+(AudioGenerator default), `elite_fraction=0.2` -> only 1 elite kept
+per generation for the evolutionary run. Fitness: `network_delta_score`
+against the placeholder literature-encoded psychedelic target (see
+README.md's "Psychedelic States as Neural Targets" -- not real
+PsiConnect data yet).
+
+**Result:**
+
+| | gen 0 | gen 1 | gen 2 | best |
+|---|---|---|---|---|
+| Evolutionary | +0.0515 | (unchanged) | +0.0521 | **+0.0521** |
+| Random | +0.0515 | +0.0521 | +0.1474 | **+0.1474** |
+
+Random baseline won. Evolutionary search stalled near its starting
+value across all 3 generations; random happened to draw a much better
+candidate on its last generation.
+
+**What this does NOT show:** that evolutionary search is useless for
+this problem. 12 evaluations per method is far too small a sample to
+conclude anything about which approach is generally better -- a single
+lucky/unlucky draw dominates the result at this scale.
+
+**What this probably does show:** a real problem with *this specific
+configuration*, not with the approach itself:
+
+- `elite_fraction=0.2` on a population of 4 rounds to 1 elite. Every
+  child in a generation is a mutation of the *same single parent* --
+  no diversity from a second lineage, so if that one elite sits in a
+  flat/bad region of the fitness landscape, every child that
+  generation inherits the same dead end.
+- `mutation_strength=0.5` was tuned by ear for audible-but-related
+  variation (see `AudioGenerator`'s docstring), not for search
+  effectiveness. If the resulting latent perturbation is large enough
+  that a child's fitness is nearly uncorrelated with its parent's,
+  mutation-from-elite stops being meaningfully different from a fresh
+  random draw -- which would exactly produce a result like this one.
+- Both curves share the identical gen-0/gen-1 value (+0.0515 ->
+  +0.0521) purely by coincidence of shared early seeds in this run,
+  which shrinks the effective sample further.
+
+**Next steps that would actually answer the question:** run at the
+real budget (population 6, 5 generations -- `run_evolution_cli.py`'s
+current defaults, ~30 evaluations, ~80min) and/or repeat this same
+comparison a few times to see if evolutionary reliably catches up past
+gen 2, or systematically tune `elite_fraction` (try 2 elites instead
+of 1) and `mutation_strength` (try 0.2-0.3) before concluding either
+way.
+
+---
+
+## 2026-08-30: first real-budget evolutionary run (no baseline yet)
+
+**Setup:** `run_evolution_cli.py`, default `SearchConfig` (population 6,
+5 generations, elite_fraction 0.2 -> 1 elite/generation), same prompt
+and target as above. 30 evaluations total.
+
+**Result -- best-fitness-so-far by generation:**
+
+| gen | best this gen | best-so-far |
+|---|---|---|
+| 0 | +0.0515 | +0.0515 |
+| 1 | +0.0642 | +0.0642 |
+| 2 | +0.1474 | +0.1474 |
+| 3 | **+0.1580** | +0.1580 |
+| 4 | +0.0801 | +0.1580 (no improvement) |
+
+Full lineage in `data/evolution_run/manifest.csv`.
+
+Unlike the tiny 12-eval comparison above, this run shows a real,
+monotonic climb across generations 0-3 -- each generation's elite
+parent produced at least one child that beat it, which is evolution
+actually doing something, not a lucky single draw. Generation 4 then
+stalled: all 5 children of the generation-3 elite (cand_0016, +0.1580)
+scored *worse* than their parent, spanning -0.0856 to +0.0801 -- a wide
+spread from one parent in one mutation step.
+
+That gen-4 spread reinforces the `mutation_strength=0.5` suspicion from
+the earlier entry: if children this far from a good parent are common,
+mutation isn't "refining" a local peak so much as frequently jumping
+past it, which would show up exactly as this kind of stall right after
+a strong generation.
+
+**Not yet a win for evolutionary over random** -- this run has no
+matched-budget random baseline (the earlier baseline entry above used
+a different, much smaller budget: 12 evals vs. this run's 30). Next
+step: run `run_random_baseline()` at this same population=6/
+generations=5 budget before drawing any real conclusion about which
+approach is better here.
+
+---
+
+## 2026-08-30: matched-budget baseline run INVALID -- cache-collision bug
+
+**What happened:** ran `run_baseline_cli.py` (population 6, 5
+generations) right after the real evolutionary run above, expecting a
+fair comparison. Instead its printed fitness values for `cand_0000`
+through `cand_0025` reproduced the evolutionary run's values almost
+exactly (e.g. `cand_0016` = +0.1580 in both, `cand_0003` = +0.0515 in
+both). Only `cand_0026`-`cand_0029` (identifiers past the evolutionary
+run's highest) had genuinely new values.
+
+**Root cause:** `AudioGenerator` identifiers were a plain counter
+(`cand_0000`, `cand_0001`, ...) that restarts at 0 in every fresh
+process. `TribeRuntime`'s prediction cache is disk-persisted and keyed
+only on `stimulus.identifier` + modality + model identity
+(`tribe_core/cache.py`) -- not on actual audio content. So the
+baseline script's fresh generator, also starting at `cand_0000`,
+collided identifier-for-identifier with the *previous* (evolutionary)
+run's already-cached predictions and silently got those back instead
+of evaluating its own, different, freshly-generated audio. This is the
+same class of bug the checkpoint `resume_from()` hook fixed for
+pause/resume *within* one script run -- but that fix did nothing for
+two separate script invocations, which is what happened here.
+
+**This means:** the baseline run's results above are void, not just
+"inconclusive" -- most of it wasn't actually a baseline evaluation at
+all. The apples-to-apples comparison this run was meant to produce
+still doesn't exist yet.
+
+**Fix:** `AudioGenerator` identifiers are now derived from a hash of
+the actual latent content (`_identifier_for`), not a counter. Same
+content -> same identifier -> correct cache hit; different content is
+now guaranteed a different identifier regardless of process or run
+history, so this specific collision can't recur. Fixed in the same
+commit as this entry; `run_baseline_cli.py` needs to be re-run against
+the fixed code to get a real matched-budget comparison.
+
+---
+
+*(next entries go here)*

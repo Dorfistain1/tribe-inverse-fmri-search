@@ -14,7 +14,7 @@ re-derive it the same way rather than guessing.
 
 from __future__ import annotations
 
-import re
+import hashlib
 from pathlib import Path
 
 import torch
@@ -99,13 +99,18 @@ class AudioGenerator(StimulusGenerator):
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._pipe = None
-        # Flat monotonic counter for identifiers (cand_0000, cand_0001,
-        # ...) instead of parent-name-chained hashes (old scheme:
-        # gen0_0001_m19cd2894_m47234346...): unbounded filename growth
-        # across mutation depth, and a hash tells a human nothing when
-        # browsing the output folder. search.py renames the file with
-        # generation/fitness once known -- that's the human-useful part,
-        # not this internal id, which just needs to be short and unique.
+        # Only used to vary _random_latent's seed across calls -- NOT
+        # part of the identifier (see _identifier_for). A plain counter
+        # was tried for identifiers too (cand_0000, cand_0001, ...) but
+        # caused a real bug: it resets to 0 in every fresh process,
+        # while TribeRuntime's prediction cache is disk-persisted and
+        # keyed on identifier alone (tribe_core/cache.py) -- so two
+        # separate script runs (e.g. an evolutionary run followed by a
+        # baseline run) starting their own counters at 0 would silently
+        # return each other's cached predictions for unrelated audio
+        # whenever the counters lined up. Discovered when a "random
+        # baseline" run reproduced the evolutionary run's exact fitness
+        # values almost everywhere.
         self._counter = 0
 
     @property
@@ -141,19 +146,6 @@ class AudioGenerator(StimulusGenerator):
             self._pipe = None
             torch.cuda.empty_cache()
 
-    def resume_from(self, population: list[Candidate]) -> None:
-        """Advance self._counter past whatever cand_NNNN identifiers
-        are already in the resumed population, so new candidates from
-        this (fresh) instance can't collide with theirs -- see
-        generators/base.py's resume_from docstring for why that matters
-        beyond cosmetics (cache-key correctness)."""
-        max_seen = -1
-        for candidate in population:
-            match = re.fullmatch(r"cand_(\d+)", candidate.stimulus.identifier)
-            if match:
-                max_seen = max(max_seen, int(match.group(1)))
-        self._counter = max_seen + 1
-
     def _random_latent(self, seed: int) -> torch.Tensor:
         generator = torch.Generator(self.device).manual_seed(seed)
         return torch.randn(
@@ -187,10 +179,14 @@ class AudioGenerator(StimulusGenerator):
             metadata={"latent": latents.detach().to("cpu")},
         )
 
-    def _next_identifier(self) -> str:
-        identifier = f"cand_{self._counter:04d}"
-        self._counter += 1
-        return identifier
+    def _identifier_for(self, latent: torch.Tensor) -> str:
+        """Content-derived, not sequential -- see the _counter comment
+        in __init__ for the cross-run cache-collision bug this fixes.
+        Same latent content always maps to the same identifier (a
+        correct cache hit); different content is guaranteed a different
+        identifier, regardless of process or run history."""
+        digest = hashlib.sha256(latent.detach().cpu().numpy().tobytes()).hexdigest()[:12]
+        return f"cand_{digest}"
 
     def initial_population(self, n: int) -> list[Stimulus]:
         # Seed from the running counter, not range(n) -- otherwise every
@@ -201,8 +197,9 @@ class AudioGenerator(StimulusGenerator):
         stimuli = []
         for _ in range(n):
             seed = self._counter
-            identifier = self._next_identifier()
-            stimuli.append(self._decode(self._random_latent(seed=seed), identifier=identifier))
+            self._counter += 1
+            latent = self._random_latent(seed=seed)
+            stimuli.append(self._decode(latent, identifier=self._identifier_for(latent)))
         return stimuli
 
     def mutate(self, parent: Candidate) -> Stimulus:
@@ -215,4 +212,4 @@ class AudioGenerator(StimulusGenerator):
         parent_latent = parent_latent.to(self.device)
         noise = torch.randn_like(parent_latent) * self.mutation_strength
         child_latent = (parent_latent + noise).to(torch.float16)
-        return self._decode(child_latent, identifier=self._next_identifier())
+        return self._decode(child_latent, identifier=self._identifier_for(child_latent))
