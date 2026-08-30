@@ -14,7 +14,6 @@ re-derive it the same way rather than guessing.
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import torch
@@ -99,6 +98,14 @@ class AudioGenerator(StimulusGenerator):
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._pipe = None
+        # Flat monotonic counter for identifiers (cand_0000, cand_0001,
+        # ...) instead of parent-name-chained hashes (old scheme:
+        # gen0_0001_m19cd2894_m47234346...): unbounded filename growth
+        # across mutation depth, and a hash tells a human nothing when
+        # browsing the output folder. search.py renames the file with
+        # generation/fitness once known -- that's the human-useful part,
+        # not this internal id, which just needs to be short and unique.
+        self._counter = 0
 
     @property
     def n_frames(self) -> int:
@@ -166,9 +173,14 @@ class AudioGenerator(StimulusGenerator):
             metadata={"latent": latents.detach().to("cpu")},
         )
 
+    def _next_identifier(self) -> str:
+        identifier = f"cand_{self._counter:04d}"
+        self._counter += 1
+        return identifier
+
     def initial_population(self, n: int) -> list[Stimulus]:
         return [
-            self._decode(self._random_latent(seed=i), identifier=f"gen0_{i:04d}")
+            self._decode(self._random_latent(seed=i), identifier=self._next_identifier())
             for i in range(n)
         ]
 
@@ -182,7 +194,4 @@ class AudioGenerator(StimulusGenerator):
         parent_latent = parent_latent.to(self.device)
         noise = torch.randn_like(parent_latent) * self.mutation_strength
         child_latent = (parent_latent + noise).to(torch.float16)
-
-        digest = hashlib.sha256(child_latent.cpu().numpy().tobytes()).hexdigest()[:8]
-        identifier = f"{parent.stimulus.identifier}_m{digest}"
-        return self._decode(child_latent, identifier=identifier)
+        return self._decode(child_latent, identifier=self._next_identifier())

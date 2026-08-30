@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import random
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from inverse_search.candidate import Candidate
@@ -54,6 +56,46 @@ def _skip_audio_transcription() -> None:
     _et.ExtractWordsFromAudio._get_transcript_from_audio = staticmethod(_empty_transcript)
 
 
+def _organize_candidate_file(candidate: Candidate, generator: StimulusGenerator) -> None:
+    """Cosmetic, for browsing: renames the candidate's file to show
+    generation + fitness once known (e.g. cand_0003.wav ->
+    g01_fit+0.423_cand_0003.wav), and appends a manifest.csv row with
+    the full structured record (identifier, generation, parent, fitness,
+    path) since lineage beyond one hop doesn't fit readably in a
+    filename. Doesn't touch stimulus.identifier -- that's the stable id
+    used for cache keys and parent_id links, only the display file.
+
+    No-op if the generator doesn't expose output_dir (not all
+    generators need one) or the file's already gone.
+    """
+    output_dir = getattr(generator, "output_dir", None)
+    if output_dir is None or candidate.fitness is None:
+        return
+    output_dir = Path(output_dir)
+
+    old_path = Path(candidate.stimulus.source)
+    if old_path.exists():
+        new_path = old_path.with_name(
+            f"g{candidate.generation:02d}_fit{candidate.fitness:+.3f}_{old_path.name}"
+        )
+        old_path.rename(new_path)
+        candidate.stimulus.source = str(new_path)
+
+    manifest_path = output_dir / "manifest.csv"
+    write_header = not manifest_path.exists()
+    with open(manifest_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(["identifier", "generation", "parent_id", "fitness", "source"])
+        writer.writerow([
+            candidate.stimulus.identifier,
+            candidate.generation,
+            candidate.parent_id or "",
+            f"{candidate.fitness:.4f}",
+            candidate.stimulus.source,
+        ])
+
+
 class EvolutionarySearch:
     """Generic evolutionary loop: generate candidates, score them
     against a target via TribeRuntime, select, repeat.
@@ -92,12 +134,13 @@ class EvolutionarySearch:
     def evaluate(self, candidate: Candidate) -> float:
         if self.runtime is None:
             candidate.fitness = random.random()
-            return candidate.fitness
-        if candidate.stimulus.modality == "audio":
-            self.runtime.model  # force-load first so our patch below applies last
-            _skip_audio_transcription()
-        prediction = self.runtime.predict(candidate.stimulus)
-        candidate.fitness = self.fitness_fn(prediction, self.target)
+        else:
+            if candidate.stimulus.modality == "audio":
+                self.runtime.model  # force-load first so our patch below applies last
+                _skip_audio_transcription()
+            prediction = self.runtime.predict(candidate.stimulus)
+            candidate.fitness = self.fitness_fn(prediction, self.target)
+        _organize_candidate_file(candidate, self.generator)
         return candidate.fitness
 
     def _evaluate_batch(self, candidates: list[Candidate]) -> None:
