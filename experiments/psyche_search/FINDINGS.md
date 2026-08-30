@@ -142,4 +142,56 @@ the fixed code to get a real matched-budget comparison.
 
 ---
 
+## 2026-08-30: real matched-budget comparison (post cache-bug fix)
+
+**Setup:** `run_baseline_cli.py` re-run after the identifier fix above,
+same population 6 / 5 generations / prompt / target as the real
+evolutionary run. All identifiers this time are fresh content hashes
+with no overlap with the evolutionary run's -- confirmed no
+cache-collision reuse (unlike the void run earlier today). Full
+lineage in `data/baseline_run/manifest.csv`.
+
+**Result -- best-fitness-so-far, evolutionary vs. random:**
+
+| gen | evolutionary | random |
+|---|---|---|
+| 0 | +0.0515 | +0.0786 |
+| 1 | +0.0642 | +0.1474 |
+| 2 | +0.1474 | +0.1474 |
+| 3 | +0.1580 | +0.1474 |
+| 4 | +0.1580 | +0.1474 |
+
+Evolutionary: **+0.1580** final. Random: **+0.1474** final. Evolutionary
+wins by a modest margin (~7% relative) -- not dramatic, but for the
+first time in this project a like-for-like, bug-free comparison
+favors selection/mutation over pure random draws.
+
+Wall time: random baseline run measured 78.6 min (4717s) for its 30
+evaluations -- roughly double the ~42 min the evolutionary run took
+for the same count (per file timestamps; that run predates the
+elapsed-time printout, so it's a proxy, not a direct measurement).
+Both scripts reload generator+TRIBE every generation identically (see
+`_evaluate_batch`'s docstring), and both used the same duration_s/
+num_inference_steps, so this gap is unexplained -- not attributed to
+evolutionary vs. random here, just flagged as worth checking (system
+load during the run, disk cache state, etc.) before reading anything
+into per-candidate timing differences between the two approaches.
+
+More notable than the final numbers: the *shape* of the two curves.
+Evolutionary climbed steadily for 4 generations before stalling.
+Random peaked early (gen 1) and never improved again -- generations
+2-4 were flat-to-negative (4 of its last 12 candidates scored below
+zero, vs. 1 of evolutionary's last 11). Evolutionary appears to hold a
+fitness "floor" near its elite's quality across generations; random
+has no such floor and keeps re-rolling the full range every generation.
+
+**Still not strong evidence either way** -- one run each, small
+population, and the earlier gen-4 stall in the evolutionary run (see
+above) suggests `mutation_strength=0.5` may still be too coarse to
+reliably refine a good elite. A real conclusion needs repeats (several
+runs of each, not one) before treating "evolutionary wins" as settled
+rather than "evolutionary wins today."
+
+---
+
 *(next entries go here)*
