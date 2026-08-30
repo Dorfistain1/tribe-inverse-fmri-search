@@ -34,7 +34,14 @@ from inverse_search.generators.fake_audio import FakeLatentGenerator
 
 DURATION_S = 5.0
 TARGET_SEED = 999_999
-MUTATION_STRENGTHS = [0.5, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005]
+# Zoomed in around 0.005 (the first value that showed a real
+# correlation in the original wide sweep [0.5..0.005], see
+# FINDINGS.md) instead of spanning orders of magnitude -- and more
+# generations (20, not SearchConfig's default 5) since fake runs cost
+# nothing and 5 generations may just be too short to show whether a
+# value keeps improving or plateaus.
+MUTATION_STRENGTHS = [0.02, 0.015, 0.01, 0.008, 0.006, 0.005, 0.004, 0.003, 0.002, 0.001]
+N_GENERATIONS = 20
 SWEEP_DIR = Path("experiments/psyche_search/data/mutation_sweep")
 
 
@@ -83,7 +90,7 @@ def run_one(mutation_strength: float) -> dict:
     )
     target_latent = FakeLatentGenerator(duration_s=DURATION_S)._random_latent(seed=TARGET_SEED)
     runtime = FakeTribeRuntime()
-    config = SearchConfig()
+    config = SearchConfig(n_generations=N_GENERATIONS)
 
     search = EvolutionarySearch(
         runtime=runtime,

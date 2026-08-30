@@ -372,6 +372,38 @@ reverted to its plain defaults (no mutation_strength override) in the
 meantime -- the full run is on hold pending what this smaller sweep
 shows.
 
+## 2026-08-30: extended fake sweep, then meta-search finds the same answer twice
+
+Redirected effort back to the free fake tier instead of spending real
+GPU time -- two further steps, both CPU-only:
+
+**Extended grid sweep** (`sweep_mutation_strength.py`, updated): 20
+generations instead of 5, values zoomed in around 0.005 instead of
+spanning 0.5-0.005. Correlation climbs steadily below ~0.01 and stays
+strong (0.72-0.99) across the whole 0.001-0.01 band -- a real trend
+across many values, not a single lucky point. Best single-run
+improvement: 0.004 (+0.07). 0.015 scored *worse* than both its
+neighbors (0.02 and 0.01) -- a reminder that any one value's number
+here is noisy (one run, no repeats).
+
+**Meta-search** (`meta_search_mutation_strength.py`, new): rather than
+manually picking sweep points, ran `EvolutionarySearch` itself over
+`mutation_strength` as the thing being evolved -- each "candidate" is
+a value, evaluated by averaging 3 independent 6x20 fake searches
+(reduces the single-run noise the grid sweep showed), mutated
+multiplicatively in log-space (values span 3 orders of magnitude, so
+additive noise doesn't work), keeping 3 elites per generation ("multiple
+bests"). Converged from a wide random start (0.0001-0.022) to a tight
+cluster at 0.003-0.007 within 6 generations; best found: 0.00597
+(avg improvement +0.0685 over 3 repeats). ~3 minutes total, no GPU.
+
+Two independent methods (grid sweep, meta-search) landing on the same
+~0.004-0.006 region is a real cross-validation, not a coincidence of
+one lucky sweep point -- the strongest evidence yet for where the fake
+landscape's usable region is. Still the same standing caveat as every
+entry above: this narrows down a real-run candidate, it doesn't
+replace needing one.
+
 ---
 
 *(next entries go here)*
