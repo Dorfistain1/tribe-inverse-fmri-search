@@ -146,6 +146,16 @@ class AudioGenerator(StimulusGenerator):
             self._pipe = None
             torch.cuda.empty_cache()
 
+    def decode_latent(self, latent: torch.Tensor, identifier: str) -> Stimulus:
+        """Public entry point for decoding a latent you already have in
+        hand (e.g. a reference clip from a mechanism-testing script,
+        see generators/fake_audio.py) -- unlike mutate()/
+        initial_population(), doesn't touch self._counter or require a
+        parent Candidate. Caller is responsible for matching shape/
+        dtype to what the pipeline expects (float16,
+        (1, LATENT_CHANNELS, duration_s * LATENT_FRAMES_PER_SECOND))."""
+        return self._decode(latent, identifier)
+
     def _random_latent(self, seed: int) -> torch.Tensor:
         generator = torch.Generator(self.device).manual_seed(seed)
         return torch.randn(

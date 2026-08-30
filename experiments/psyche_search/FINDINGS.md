@@ -236,4 +236,55 @@ random floor going forward -- a deliberate tradeoff, not an oversight.
 
 ---
 
+## 2026-08-30: full-fake mechanism test -- curse of dimensionality, and a cache bug
+
+**Setup:** `run_fake_search_cli.py` (see `inverse_search/DESIGN.md`'s
+"testing pyramid" section) -- same population/generations/mutation as
+a real run, but fitness is negative L2 distance to a real, valid
+hidden target latent instead of a TRIBE prediction. No GPU cost except
+decoding 3 reference clips (target/start/best) at the very end.
+
+**Result:** the search never improved past its own initial random
+population. Best-so-far stayed frozen at generation 0's value through
+all 4 following generations. Every single mutation (80 parent-child
+pairs across 4 runs while debugging) shifted fitness by almost exactly
+the same amount: mean delta -34.6, stdev under 0.5. That's the curse of
+dimensionality -- the latent is ~164,000 numbers, and Gaussian noise at
+`mutation_strength=0.5` moves almost exactly the same total Euclidean
+distance regardless of direction at that dimensionality, so raw L2
+distance can't tell "toward the target" from "away from it." This is a
+property of the fake objective (raw latent distance), not proof
+TRIBE's real landscape behaves the same way -- but it's a real
+warning that this particular fake design isn't a trustworthy stand-in
+for tuning `mutation_strength` against.
+
+**Real bug caught in the process:** the fake run itself worked fine
+(~15s for 30 evaluations), but the final decode step tried to
+re-download the entire Stable Audio Open model over the network,
+eating real bandwidth, instead of using the already-complete cache on
+the G: drive. Root cause: `EvolutionarySearch.evaluate()` imports
+`tribev2.eventstransforms` for every audio candidate, and that import
+alone pulls in `huggingface_hub` -- which bakes in the *default* cache
+location the first time it happens, permanently, for the rest of the
+process (same class of bug as the original HF_HOME gotcha in
+`tribe_core/env.py`). Real runs are protected because `TribeRuntime`
+calls `configure_hf_cache()` at construction, before anything else
+runs. This fake-runtime script never constructs a real `TribeRuntime`
+-- that's the point of "fake" -- so nothing called it early enough.
+Fixed by calling `configure_hf_cache()` explicitly as the very first
+thing in the script, before any other project import. Caught before
+wasting more than a few minutes of bandwidth, but worth remembering
+for any future fake-runtime script: this doesn't error, it just
+silently uses the wrong cache.
+
+**Listening check:** with the bug fixed, `data/fake_search/` has 3 real
+clips (`reference_target.wav`, `reference_start.wav`,
+`reference_best.wav`). Given the finding above, "best" is really just
+the better of 6 random draws from generation 0, not something the
+search actually earned through mutation -- worth keeping that in mind
+when judging whether it sounds any closer to the target than "start"
+does.
+
+---
+
 *(next entries go here)*

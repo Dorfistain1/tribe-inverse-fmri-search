@@ -106,6 +106,52 @@ duration, not derived -- see generators/audio.py's docstring for the
 comparison points (0.15/0.3 too subtle, 0.5 clearly related-but-
 different, 0.8+ starting to feel unrelated).
 
+## Testing pyramid: fake generator/runtime before real runs
+
+A real search costs ~80min/30 evaluations (generator + TRIBE reload
+every generation). Before spending that, `generators/fake_audio.py`'s
+`FakeLatentGenerator` (same latent shape/mutation math as
+AudioGenerator, no decode/GPU) paired with `fake_runtime.py`'s
+`FakeTribeRuntime` (returns the candidate's own latent as `.activity`,
+skipping TRIBE) lets the whole EvolutionarySearch mechanism run in
+~15s instead of ~80min. See
+experiments/psyche_search/src/run_fake_search_cli.py.
+
+The fake target is deliberately a REAL, valid latent (generated the
+same way any candidate is), not an arbitrary invented vector -- so
+"closer to target" has an actual sound to check by ear, not just a
+smaller number. The script decodes exactly 3 real clips at the end
+(target/start/best) with the real AudioGenerator, the only GPU work it
+does.
+
+What this tier proved (see FINDINGS.md): raw L2 distance in the
+~164,000-dimensional latent space is a bad fake objective at
+`mutation_strength=0.5` -- concentration of measure means a mutation
+of that size moves almost exactly the same total distance from the
+target regardless of direction (mean delta -34.5, stdev 0.4 across 80
+pairs), so the search never beat its own initial random population.
+This says nothing definitive about TRIBE's real landscape (which isn't
+raw latent distance), but it's a real, cheap warning that mutation
+step size interacts badly with dimensionality in ways worth checking
+before trusting a fake landscape's tuning conclusions on the real one.
+
+Gotcha specific to this tier: EvolutionarySearch.evaluate() imports
+tribev2.eventstransforms for every audio candidate (see search.py's
+_skip_audio_transcription), which alone pulls in huggingface_hub and
+bakes in the *default* HF cache location, permanently, the first time
+it happens -- same underlying issue as tribe_core/env.py's HF_HOME
+gotcha. Real runs are protected because TribeRuntime.__init__ calls
+configure_hf_cache() early; a fake-runtime script never constructs a
+real TribeRuntime, so it must call configure_hf_cache() itself, first
+thing, before any other project import. Skipping this doesn't error --
+it silently re-downloads the whole model into the wrong cache the next
+time something needs it for real (discovered exactly that way, see
+FINDINGS.md).
+
+Partial-fake tier (real audio generation, fake TRIBE only) is the
+planned next step once this tier's mechanism checks look right -- not
+yet built.
+
 ## Deferred: surrogate-model-guided search (v2) -- "the Watcher"
 
 Instead of randomly perturbing the latent, build a model of "these
