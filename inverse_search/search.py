@@ -151,6 +151,7 @@ class EvolutionarySearch:
             prediction = self.runtime.predict(candidate.stimulus)
             candidate.fitness = self.fitness_fn(prediction, self.target)
         _organize_candidate_file(candidate, self.generator)
+        self.generator.record_result(candidate)
         return candidate.fitness
 
     def _evaluate_batch(
@@ -228,6 +229,7 @@ class EvolutionarySearch:
                 if checkpoint_path is not None:
                     checkpoint.save(checkpoint_path, start_generation, population)
 
+            previous_best = max(c.fitness for c in population)
             for generation in range(start_generation, self.config.n_generations):
                 population.sort(key=lambda c: c.fitness, reverse=True)
                 n_elite = max(1, round(len(population) * self.config.elite_fraction))
@@ -257,6 +259,8 @@ class EvolutionarySearch:
                     checkpoint.save(checkpoint_path, generation + 1, population)
 
                 best = max(c.fitness for c in population)
+                self.generator.on_generation_result(improved=best > previous_best)
+                previous_best = best
                 notify(
                     f"generation {generation}/{self.config.n_generations}: "
                     f"done, best fitness so far = {best:+.4f}"

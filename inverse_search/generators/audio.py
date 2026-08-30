@@ -96,6 +96,8 @@ class AudioGenerator(StimulusGenerator):
         mutation_strength: float = 0.5,
         output_dir: str | Path | None = None,
         device: str = "cuda",
+        mutation_decay: float | None = None,
+        min_mutation_strength: float = 1e-4,
     ):
         self.model_root = model_root
         self.prompt = prompt
@@ -103,6 +105,14 @@ class AudioGenerator(StimulusGenerator):
         self.num_inference_steps = num_inference_steps
         self.mutation_strength = mutation_strength
         self.device = device
+        # Adaptive step size (evolution strategies' "1/5 success
+        # rule"): shrink mutation_strength when a generation fails to
+        # beat the previous best. None (default) keeps mutation_strength
+        # fixed, matching this class's behavior before this was added --
+        # see generators/fake_audio.py's FakeLatentGenerator, where this
+        # was tested first (cheap, no GPU) before adding it here too.
+        self.mutation_decay = mutation_decay
+        self.min_mutation_strength = min_mutation_strength
         self.output_dir = Path(
             output_dir or "experiments/psyche_search/data/candidates"
         )
@@ -232,3 +242,9 @@ class AudioGenerator(StimulusGenerator):
         noise = torch.randn_like(parent_latent) * self.mutation_strength
         child_latent = (parent_latent + noise).to(torch.float16)
         return self._decode(child_latent, identifier=self._identifier_for(child_latent))
+
+    def on_generation_result(self, improved: bool) -> None:
+        if self.mutation_decay is not None and not improved:
+            self.mutation_strength = max(
+                self.min_mutation_strength, self.mutation_strength * self.mutation_decay
+            )

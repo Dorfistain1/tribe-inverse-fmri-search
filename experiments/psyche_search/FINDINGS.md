@@ -418,6 +418,52 @@ independent methods agreed:
    generation, staying there for the rest of a 6-generation run. Best
    found: 0.00597.
 
+**Two follow-up ideas, both tested on the fake tier before touching real
+GPU time again:** (1) an adaptive mutation_strength schedule -- start
+big, shrink on stall (evolution strategies' "1/5 success rule"),
+implemented as a generic `on_generation_result(improved)` hook on
+`StimulusGenerator` (base.py), wired into `search.py`'s generation
+loop; (2) a first "Watcher" prototype
+(`generators/watcher_fake.py`'s `SurrogateFakeLatentGenerator`) --
+PCA + ridge regression fit on every (latent, fitness) pair seen so
+far (via a new `record_result()` hook), used to pick the best-
+predicted of several candidate mutations before spending a real
+evaluation on any of them.
+
+`compare_watcher_fake.py`: 30 generations, same hidden target, three
+conditions --
+
+| condition | final improvement |
+|---|---|
+| blind, fixed mutation_strength=0.005 | **+0.0841** (best) |
+| Watcher, fixed mutation_strength=0.005 | +0.0445 |
+| blind, adaptive from 0.5 (decay 0.7/stall) | +0.0357 (worst) |
+
+**Adaptive schedule:** works exactly as designed, but the cost is
+visible and real -- fitness stays completely frozen for the first 11
+generations (0.5 is degenerate on the fake landscape, as already
+known), only starting to climb once decay has shrunk it to ~0.007
+(0.5 x 0.7^12), right where the sweep already said the useful region
+starts. In a real ~5-generation budget this exact schedule would
+likely show zero improvement the whole run -- it wouldn't have time to
+decay into the useful range. Caveat: the *real* run at fixed 0.5
+already showed genuine improvement (unlike fake), so this "wasted
+generations" cost may be smaller or absent on TRIBE's real landscape --
+untested.
+
+**Watcher v1 underperformed plain blind mutation** -- a real, if
+disappointing, negative result. Likely cause: PCA + ridge fit on very
+few samples (even after reduction) isn't predicting well enough to
+beat picking randomly, and may be actively steering toward worse
+candidates from overfit noise rather than neutral. Not evidence the
+Watcher concept is dead -- DESIGN.md always described this crude
+version as a first iteration, not the intended final design (a real
+acquisition-function/Bayesian-optimization approach) -- but it is
+evidence this specific cheap version isn't earning its added
+complexity yet. Don't invest further here without a better surrogate
+or more data per fit; plain blind mutation at a known-good
+mutation_strength remains the best fake-tier result so far.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 

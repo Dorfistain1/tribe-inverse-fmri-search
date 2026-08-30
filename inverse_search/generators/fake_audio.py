@@ -35,10 +35,20 @@ class FakeLatentGenerator(StimulusGenerator):
         mutation_strength: float = 0.5,
         device: str = "cpu",
         output_dir: str | None = None,
+        mutation_decay: float | None = None,
+        min_mutation_strength: float = 1e-4,
     ):
         self.duration_s = duration_s
         self.mutation_strength = mutation_strength
         self.device = device
+        # Adaptive step size a la evolution strategies' "1/5 success
+        # rule": shrink mutation_strength when a generation fails to
+        # beat the previous best, instead of a fixed value for the
+        # whole run. None (default) disables this -- mutation_strength
+        # stays fixed, matching every generator's behavior before this
+        # was added.
+        self.mutation_decay = mutation_decay
+        self.min_mutation_strength = min_mutation_strength
         # Optional, matching AudioGenerator's attribute of the same
         # name: if set, search.py's _organize_candidate_file logs a
         # manifest.csv row per candidate (identifier/generation/parent/
@@ -90,3 +100,9 @@ class FakeLatentGenerator(StimulusGenerator):
         parent_latent = parent.stimulus.metadata["latent"]
         noise = torch.randn_like(parent_latent) * self.mutation_strength
         return self._wrap((parent_latent + noise).to(torch.float16))
+
+    def on_generation_result(self, improved: bool) -> None:
+        if self.mutation_decay is not None and not improved:
+            self.mutation_strength = max(
+                self.min_mutation_strength, self.mutation_strength * self.mutation_decay
+            )

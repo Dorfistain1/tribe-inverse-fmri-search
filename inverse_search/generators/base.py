@@ -52,3 +52,18 @@ class StimulusGenerator(ABC):
         stimulus.identifier, so a reused identifier can silently return
         a cached prediction for the wrong audio. No-op by default --
         override if the generator has internal state like a counter."""
+
+    def record_result(self, candidate: Candidate) -> None:
+        """Called by EvolutionarySearch right after a candidate is
+        evaluated (candidate.fitness is already set). No-op by default
+        -- override to build up history for something like a surrogate
+        model (see generators/watcher_fake.py's SurrogateFakeLatentGenerator)."""
+
+    def on_generation_result(self, improved: bool) -> None:
+        """Called once per generation by EvolutionarySearch.run(),
+        right after that generation's best-so-far is known, with
+        whether it beat the best-so-far from before this generation.
+        No-op by default -- override for e.g. an adaptive
+        mutation_strength schedule (shrink the step size when a
+        generation fails to improve -- the "1/5 success rule" pattern
+        from evolution strategies)."""
