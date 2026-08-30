@@ -30,8 +30,14 @@ from inverse_search import EvolutionarySearch, SearchConfig
 from inverse_search.generators.audio import AudioGenerator
 from tribe_core import TribeRuntime
 
-CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "evolution_checkpoint.json"
-OUTPUT_DIR = "experiments/psyche_search/data/evolution_run"
+CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "evolution_checkpoint_mut0.1.json"
+OUTPUT_DIR = "experiments/psyche_search/data/evolution_run_mut0.1"
+# 0.5 (AudioGenerator's own default) gave -0.115 real parent-child
+# correlation (FINDINGS.md) and, on the fake tier, needed dropping
+# ~100x before correlation stopped being ~0 (also FINDINGS.md) --
+# testing a real run at a meaningfully smaller value to see if it
+# actually helps on TRIBE's real landscape, not just the fake one.
+MUTATION_STRENGTH = 0.1
 # Structured, not ambient/drone -- a human needs something with melody/
 # rhythm to actually tell candidates apart by ear (drone all sounds the
 # same regardless of fitness, see FINDINGS.md). No vocals: dropped
@@ -61,7 +67,9 @@ def main():
 
     runtime = TribeRuntime()
     target = build_psychedelic_target()
-    generator = AudioGenerator(prompt=PROMPT, output_dir=OUTPUT_DIR)
+    generator = AudioGenerator(
+        prompt=PROMPT, output_dir=OUTPUT_DIR, mutation_strength=MUTATION_STRENGTH
+    )
     config = SearchConfig()  # tuned defaults: population 6, 5 generations
 
     search = EvolutionarySearch(

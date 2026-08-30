@@ -327,4 +327,37 @@ involving model loading or decoding on this hardware.
 
 ---
 
+## 2026-08-30: mutation_strength sweep on the fake tier
+
+**Setup:** `sweep_mutation_strength.py` -- same fake search as before,
+run once per `mutation_strength` in [0.5, 0.3, 0.2, 0.1, 0.05, 0.02,
+0.01, 0.005], reporting best-so-far improvement and parent-child
+fitness correlation for each. Pure CPU, no audio/GPU, whole sweep runs
+in seconds.
+
+**Result:**
+
+| mutation_strength | improvement over gen0 | parent-child correlation |
+|---|---|---|
+| 0.5 -- 0.02 | ~0.00 | ~0 or undefined |
+| 0.005 | +0.01 | 0.614 |
+
+Correlation only becomes real somewhere below 0.02 -- roughly 100x
+smaller than the current default. But the improvement even at 0.005 is
+tiny (0.01 against a -572 baseline), and this fake objective (raw
+distance to one point in a ~164,000-dim space) is a much harder,
+more artificial landscape than TRIBE's real fitness (a coarser
+connectivity summary, plausibly much smoother). So this sweep confirms
+0.5 is clearly too large, but its exact numbers don't transfer to
+picking a real mutation_strength value directly.
+
+**Follow-up, real run:** testing `mutation_strength=0.1` (a moderate
+cut, not the fake tier's extreme 0.005) on a real evolutionary search
+-- `run_evolution_cli.py`, output now at `data/evolution_run_mut0.1/`,
+checkpoint at `data/evolution_checkpoint_mut0.1.json` -- to see if real
+parent-child correlation improves past the -0.115 baseline measured at
+0.5. Result pending.
+
+---
+
 *(next entries go here)*
