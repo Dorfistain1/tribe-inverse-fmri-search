@@ -351,18 +351,26 @@ connectivity summary, plausibly much smoother). So this sweep confirms
 0.5 is clearly too large, but its exact numbers don't transfer to
 picking a real mutation_strength value directly.
 
-**Follow-up, real run -- corrected mid-flight:** first launched at
-`mutation_strength=0.1`, but killed almost immediately (before it
-finished evaluating even one candidate) on re-reading the sweep table
-above: 0.1 sat in the same degenerate cluster as the default 0.5 (~0
-improvement, ~0 correlation) -- not actually a meaningfully different
-test from the one we already have. Relaunched at `mutation_strength=
-0.02` instead, the smallest sweep value that showed any non-degenerate
-correlation (0.008, weak but present, vs. NaN/0 everywhere above it) --
-a choice the sweep data actually supports, rather than an arbitrary
-"moderate cut." `run_evolution_cli.py`, output at
-`data/evolution_run_mut0.02/`, checkpoint at
-`data/evolution_checkpoint_mut0.02.json`. Result pending.
+**Follow-up -- two false starts on a full 80min real run, then a
+smaller step instead:** first launched at `mutation_strength=0.1`,
+killed almost immediately on re-reading the sweep table above -- 0.1
+sat in the same degenerate cluster as the default 0.5, not actually a
+different test. Relaunched at `mutation_strength=0.02`, then killed
+that too on request before it produced anything: a single ~80min,
+30-eval real run per candidate value is a lot to commit to based on
+fake-tier numbers alone, however well-reasoned, without seeing any
+real data point first.
+
+Built `real_mutation_sweep_cli.py` instead -- small-budget (3
+population x 2 generations = 5 evals, not 30) real runs (real audio +
+real TRIBE) at `mutation_strength` in [0.5, 0.02, 0.005], meant to be
+run and watched directly rather than summarized after the fact. Not
+statistically solid on its own (5 evals is too few), but gives an
+actual real-TRIBE data point at the small-mutation regime before
+anyone commits real GPU time to a full-budget run. `run_evolution_cli.py`
+reverted to its plain defaults (no mutation_strength override) in the
+meantime -- the full run is on hold pending what this smaller sweep
+shows.
 
 ---
 
