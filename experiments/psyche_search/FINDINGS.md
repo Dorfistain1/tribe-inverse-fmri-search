@@ -881,6 +881,60 @@ test would need either much longer runs (more post-engagement runway)
 or repeats at each setting to separate signal from the lucky-jump
 noise that's dominated every result so far.
 
+## 2026-08-31: the 27-generation decay run answered decay -- and found a bigger problem
+
+`run_evolution_rediffusion_decay_long_cli.py`, 27 generations, ~2.5hr.
+**Result: +0.8599**, by far the highest real fitness seen. Status file:
+`first_decay_generation: 9`, `best_ever_generation: 21`,
+`best_found_after_decay: true` -- the first of four real decay-related
+runs where the peak was actually found *after* decay engaged. That's
+the real answer to the question the last three runs failed to test:
+decay does not block continued improvement, and this run improved
+substantially (0.37ish range up to 0.86) well past generation 9.
+
+**But a bigger, more serious problem surfaced checking a user
+observation** ("gen 26's 0.214 candidate sounds virtually identical to
+gen 21's 0.860 one despite a 0.5+ fitness gap," and separately "audio
+sounds very loud, parts cut off"). Checked peak amplitude and clipping
+across all 27 generations of this run's actual wav files -- not noise,
+a clean monotonic trend:
+
+| generation | peak | % samples clipped |
+|---|---|---|
+| 0 | 0.28-0.32 | 0% |
+| 2-5 | hits 1.0000 | 0-0.02% |
+| 17 | 1.0000 | ~1.5% |
+| 22-26 | 1.0000 | ~2%+ |
+
+Audio amplitude climbs steadily and starts hard-clipping by generation
+~2, worsening every generation after. Root cause: `mutate_by_rediffusion()`
+re-encodes the PREVIOUS decoded audio through the VAE and decodes
+again on every single mutation -- a repeated round-trip, and each
+cycle appears to inject a bit more energy that's never corrected,
+compounding like repeatedly re-saving a lossy file. This is a
+structural property of the mutation mechanism, not a one-off bug.
+
+**Why this matters beyond audio quality**: it casts real doubt on
+whether the fitness climb (0.37 -> 0.86 across all rediffusion runs so
+far) reflects genuine progress toward the target, or is partly/wholly
+an artifact of increasingly loud, distorted audio that TRIBE's audio
+branch happens to score differently. The "sounds the same despite a
+huge fitness gap" observation is consistent with fitness tracking
+clipping-driven spectral change rather than anything meaningfully
+target-directed. This isn't yet proven (correlation between generation
+number and both fitness and clipping doesn't establish which drives
+which, or whether both are just responding to the same underlying
+mutation accumulation) -- but it's a serious enough confound that every
+rediffusion-mutation fitness number to date (0.37, 0.57, 0.43, 0.86)
+should be treated as suspect until checked.
+
+**Likely fix, not yet built**: renormalize amplitude (e.g. peak-
+normalize to a fixed level like 0.9) after every `mutate_by_rediffusion()`
+decode, before saving/returning the candidate -- stops the round-trip
+energy drift from accumulating generation over generation. Should be
+done before trusting any further rediffusion-based real run's fitness
+numbers.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
