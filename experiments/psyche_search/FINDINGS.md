@@ -804,6 +804,32 @@ not yet run through real TRIBE fitness, and not yet tested at the
 project's normal 5s duration (tested at 3s to sidestep the VRAM issue,
 now resolved -- worth retrying at 5s next).
 
+## 2026-08-31: first real run with rediffusion mutation -- real win, same old plateau
+
+`run_evolution_rediffusion_cli.py`, real target, `redo_fraction=0.3`
+fixed, 10 generations (51 evaluations), real 5s duration (no VRAM
+issue this time -- the no_grad fix held). 57 minutes.
+
+**Result: +0.3708 best fitness** -- more than 2.3x the old raw-noise-
+mutation record (+0.1580, FINDINGS.md's first real run). Real,
+apples-to-apples improvement against the same TRIBE target.
+
+**But the trajectory has the same shape as the fake-tier gradient-
+surrogate result**: climbed fast (gen0 0.079 -> gen1 0.280 -> gen3
+0.371), then completely flat for the remaining 6 generations -- same
+elite (`cand_2f4766604e46`) parented every candidate from gen4 through
+gen9, never beaten once. A fixed edit size finds a good jump fast and
+then can't refine further, again. `mutate_by_rediffusion()` has no
+adaptive `redo_fraction` decay yet (the `stall_patience`-gated decay
+pattern exists for `mutation_strength`/`step_scale`, never ported to
+this mutation mode) -- likely next fix, same shape as the earlier
+adaptive-decay work.
+
+Net read: the fixed mechanism alone is already a real, substantial win
+over raw-noise mutation on actual TRIBE fitness -- not just fake
+proxies. Adding decay should very plausibly push past 0.37, based on
+the exact same pattern already solved once on the fake tier.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
