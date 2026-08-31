@@ -101,6 +101,8 @@ class AudioGenerator(StimulusGenerator):
         stall_patience: int = 5,
         mutation_mode: str = "latent",
         redo_fraction: float = 0.3,
+        redo_fraction_decay: float | None = None,
+        min_redo_fraction: float = 0.05,
     ):
         self.model_root = model_root
         self.prompt = prompt
@@ -110,11 +112,16 @@ class AudioGenerator(StimulusGenerator):
         self.device = device
         # "latent" (default): mutate()'s original raw-initial-noise
         # perturbation. "rediffusion": mutate_by_rediffusion()'s
-        # partial-re-diffusion img2img-style edit instead -- see that
-        # method's docstring for why it was added (untested as of
-        # this constructor change; verify before relying on it).
+        # partial-re-diffusion img2img-style edit instead -- verified
+        # working (FINDINGS.md), including a real search run that beat
+        # "latent" mode's best real fitness by 2.3x, but plateaued
+        # after gen3 with a fixed redo_fraction -- redo_fraction_decay
+        # below is the direct fix for that, same pattern as
+        # mutation_decay just below.
         self.mutation_mode = mutation_mode
         self.redo_fraction = redo_fraction
+        self.redo_fraction_decay = redo_fraction_decay
+        self.min_redo_fraction = min_redo_fraction
         # Adaptive step size (evolution strategies' "1/5 success
         # rule"): shrink mutation_strength when a generation fails to
         # beat the previous best. None (default) keeps mutation_strength
@@ -263,17 +270,29 @@ class AudioGenerator(StimulusGenerator):
         return self._decode(child_latent, identifier=self._identifier_for(child_latent))
 
     def on_generation_result(self, improved: bool) -> None:
-        if self.mutation_decay is None:
+        # Which knob decays depends on mutation_mode -- only one of
+        # mutation_strength/redo_fraction is actually used by mutate()
+        # at a time, so only that one needs a decay schedule. Measured
+        # directly on real TRIBE fitness (FINDINGS.md): a real
+        # rediffusion search climbed fast to +0.3708 by gen3, then
+        # plateaued dead flat for 6 more generations at fixed
+        # redo_fraction=0.3 -- the same "big step finds a good jump,
+        # can't refine after" shape already solved once on the fake
+        # tier via this exact stall_patience-gated decay pattern.
+        decay = self.redo_fraction_decay if self.mutation_mode == "rediffusion" else self.mutation_decay
+        if decay is None:
             return
         if improved:
             self._consecutive_stalls = 0
             return
         self._consecutive_stalls += 1
-        if self._consecutive_stalls >= self.stall_patience:
-            self.mutation_strength = max(
-                self.min_mutation_strength, self.mutation_strength * self.mutation_decay
-            )
-            self._consecutive_stalls = 0
+        if self._consecutive_stalls < self.stall_patience:
+            return
+        if self.mutation_mode == "rediffusion":
+            self.redo_fraction = max(self.min_redo_fraction, self.redo_fraction * decay)
+        else:
+            self.mutation_strength = max(self.min_mutation_strength, self.mutation_strength * decay)
+        self._consecutive_stalls = 0
 
     @torch.no_grad()
     def mutate_by_rediffusion(self, parent: Candidate, redo_fraction: float = 0.3) -> Stimulus:
