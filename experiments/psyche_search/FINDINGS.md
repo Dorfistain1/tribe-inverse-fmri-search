@@ -830,6 +830,37 @@ over raw-noise mutation on actual TRIBE fitness -- not just fake
 proxies. Adding decay should very plausibly push past 0.37, based on
 the exact same pattern already solved once on the fake tier.
 
+## 2026-08-31: redo_fraction decay, first run -- correcting a wrong attribution
+
+Ran `run_evolution_rediffusion_decay_cli.py` (`stall_patience=5`, same
+target/budget as the entry above). Result: **+0.5725**, higher than
+the non-decay run's +0.3708. Initially reported as evidence decay
+helps -- **wrong, caught by direct user pushback**, worth recording the
+correction plainly.
+
+Checked the actual manifest: the +0.5725 jump happened at **generation
+3**, mutated from generation 2's own jump, mutated from generation 1's
+-- three lucky mutations in a row off the same fixed redo_fraction=0.3,
+*before* decay had triggered even once (`stall_patience=5` needs 5
+consecutive stalled generations first, and generation 3 was still
+climbing). Decay only started acting around generation 8, on a value
+already found and already flat for 4 generations by then -- and once
+active, it produced zero further improvement over the remaining
+stalled generations anyway.
+
+So +0.5725 and the earlier +0.3708 are the same phenomenon: elitism
+preserving a lucky mutation, at a fixed (undecayed) redo_fraction, in
+both cases. Decay hasn't demonstrated any actual benefit yet -- in the
+one run where it engaged, it didn't produce further improvement
+either. Real lesson: a higher number in a later run isn't evidence a
+change helped unless the improvement happens to occur *after* that
+change was actually active. Lowered `stall_patience` to 3 for the next
+attempt (6 stalled generations only triggered one decay cycle at
+patience=5 -- see the script's own comment) -- but this still needs an
+actual test where decay is active *before* any further improvement
+happens, or a repeat/statistical comparison, before crediting it with
+anything.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
