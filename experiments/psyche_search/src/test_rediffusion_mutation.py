@@ -89,6 +89,15 @@ def main():
     gen._pipe.transformer.to(gen.device)
     _mem("after moving transformer back")
 
+    # cand_<hash>.wav (this class's normal naming, meant for search runs
+    # where search.py's _organize_candidate_file renames to
+    # g{gen}_fit{fitness}_... afterward) tells a human nothing on its
+    # own -- rename to something readable for this ad hoc comparison.
+    original_renamed = Path(original_stimulus.source).with_name("original.wav")
+    Path(original_stimulus.source).rename(original_renamed)
+    original_stimulus.source = str(original_renamed)  # must match on disk -- mutate_by_rediffusion reads this path
+    print(f"  renamed original -> {original_renamed}", flush=True)
+
     for redo_fraction in REDO_FRACTIONS:
         print(f"Mutating via re-diffusion, redo_fraction={redo_fraction}...", flush=True)
         try:
@@ -97,8 +106,10 @@ def main():
             print(f"  FAILED at redo_fraction={redo_fraction}: {type(e).__name__}: {e}", flush=True)
             _mem("at failure")
             raise
-        audio, sr = sf.read(mutated.source)
-        print(f"  redo_fraction={redo_fraction}: {mutated.source} (peak={np.abs(audio).max():.4f})", flush=True)
+        renamed = Path(mutated.source).with_name(f"redo_{redo_fraction}.wav")
+        Path(mutated.source).rename(renamed)
+        audio, sr = sf.read(renamed)
+        print(f"  redo_fraction={redo_fraction}: {renamed} (peak={np.abs(audio).max():.4f})", flush=True)
         _mem(f"after redo_fraction={redo_fraction}")
 
     gen.unload()
