@@ -777,13 +777,32 @@ instrument with the real `torch.cuda.memory_*()` APIs at each stage
 first. The two wrong guesses cost real time; the actual bug was found
 in one diagnostic pass once measured directly instead of assumed.
 
-**Not yet checked**: whether edit size actually scales with
-`redo_fraction` the way it should (small = subtle, large = bigger
-change) -- peak amplitude alone (0.77/0.93/0.53/0.89 across
-0.1/0.3/0.6/1.0) doesn't show an obvious trend, but peak isn't a good
-proxy for "how different it sounds" on its own. Next step: actually
-listen, or run the waveform/spectrogram comparison tool
-(`visualize_audio_comparison.py`) against these files.
+**Checked with `visualize_audio_comparison.py`** (waveform +
+spectrogram, all 5 clips side by side,
+`data/rediffusion_test/comparison.png`): a clean, monotonic
+progression. `redo_fraction=0.1` is nearly indistinguishable from the
+original -- same rhythm, same peak timing. `0.3` keeps the overall
+structure but gets denser/fuzzier. `0.6` changes substantially --
+smoother envelope, less like distinct notes, closer to a sustained
+pad, runs slightly longer. `1.0` is the most different by far --
+visibly shorter, fewer and denser bursts, a genuinely different
+rhythm shape.
+
+This is the first mutation approach all session with any reliable
+relationship between "how much you told it to change" and "how much
+actually changed." Every raw-latent-noise approach (mutate_strength,
+step_scale tuning, all of it) never showed this -- small nudges did
+nothing, big nudges did something unpredictable, and nothing in
+between behaved as a controllable dial. This one does. Directly
+addresses the user's own diagnosis from the previous session ("the
+issue is with the diffuser that makes it seemingly random") with a
+real fix, not just a smarter search algorithm layered on the same
+broken substrate.
+
+Still open: this is one qualitative visual check on one candidate,
+not yet run through real TRIBE fitness, and not yet tested at the
+project's normal 5s duration (tested at 3s to sidestep the VRAM issue,
+now resolved -- worth retrying at 5s next).
 
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
