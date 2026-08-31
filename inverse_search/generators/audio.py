@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from inverse_search.candidate import Candidate
@@ -472,6 +473,21 @@ class AudioGenerator(StimulusGenerator):
 
         identifier = self._identifier_for(latents)
         audio_out = audio[0].float().cpu().numpy().T
+        # Peak-normalize to a fixed level, always -- not just when
+        # clipping. Every mutate_by_rediffusion() call re-encodes the
+        # PREVIOUS decode through the VAE and decodes again, and that
+        # round-trip appears to inject energy that never gets
+        # corrected: measured directly across a real 27-generation run
+        # (FINDINGS.md), peak amplitude climbed from ~0.3 at gen0 to
+        # hard-clipping at 1.0 by gen2, reaching 2%+ of all samples
+        # clipped by gen22-26. Beyond the audio-quality problem, that
+        # cast real doubt on whether real fitness gains reflected
+        # genuine progress or clipping-driven spectral artifacts.
+        # Normalizing every candidate to the same peak removes loudness
+        # drift as a variable entirely, not just prevents clipping.
+        peak = np.abs(audio_out).max()
+        if peak > 1e-8:
+            audio_out = audio_out * (0.9 / peak)
         path = self.output_dir / f"{identifier}.wav"
         sf.write(str(path), audio_out, SAMPLE_RATE)
 
