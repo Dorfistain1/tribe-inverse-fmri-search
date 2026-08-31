@@ -275,6 +275,7 @@ class AudioGenerator(StimulusGenerator):
             )
             self._consecutive_stalls = 0
 
+    @torch.no_grad()
     def mutate_by_rediffusion(self, parent: Candidate, redo_fraction: float = 0.3) -> Stimulus:
         """Real partial-re-diffusion mutation (SDEdit/img2img-style),
         as an alternative to mutate()'s raw-initial-noise perturbation.
@@ -330,6 +331,24 @@ class AudioGenerator(StimulusGenerator):
         guidance_scale = 7.0  # matches _decode()'s pipe() calls, which never override this default
         do_cfg = guidance_scale > 1.0
 
+        # This card is already tight (8GB, ~5.9GB resident for the
+        # loaded pipe -- see load()'s docstring). gc.collect() +
+        # empty_cache() alone were NOT enough -- measured directly:
+        # three separate attempts (with/without these, at two
+        # durations) all OOM'd with "0 bytes free" and a near-identical
+        # ~22.5GB "allocated by PyTorch" figure, unmoved by cache-
+        # clearing. That ruled out fragmentation as the cause -- this
+        # is genuine peak-memory pressure. Real fix: the transformer
+        # (this pipe's largest resident component) isn't needed for a
+        # VAE-only encode, so move it off the GPU for just this step
+        # and bring it back before the denoising loop needs it.
+        import gc
+
+        gc.collect()
+        torch.cuda.empty_cache()
+        pipe.transformer.to("cpu")
+        torch.cuda.empty_cache()
+
         # 1. Encode the parent's actual audio back to latent space --
         # the real content being edited, not the abstract initial-noise
         # latent stored in metadata (that's x_T, this needs real x_0-ish
@@ -347,6 +366,8 @@ class AudioGenerator(StimulusGenerator):
         elif audio_tensor.shape[1] == 2 and audio_channels == 1:
             audio_tensor = audio_tensor.mean(1, keepdim=True)
 
+        # sample_size still readable from transformer.config even while
+        # its weights are on CPU -- config is just plain Python data.
         audio_vae_length = int(pipe.transformer.config.sample_size) * pipe.vae.hop_length
         padded = audio_tensor.new_zeros((1, audio_channels, audio_vae_length))
         length = min(audio_tensor.shape[-1], audio_vae_length)
@@ -354,6 +375,9 @@ class AudioGenerator(StimulusGenerator):
 
         seed_generator = torch.Generator(device).manual_seed(0)
         encoded_latents = pipe.vae.encode(padded).latent_dist.sample(seed_generator)
+        del audio_tensor, padded  # done with these -- free before the transformer moves back to GPU
+        torch.cuda.empty_cache()
+        pipe.transformer.to(device)  # back for the denoising loop below, which does need it
 
         # 2. Conditioning -- reuses the pipeline's own encode_prompt/
         # encode_duration rather than reimplementing them, specifically

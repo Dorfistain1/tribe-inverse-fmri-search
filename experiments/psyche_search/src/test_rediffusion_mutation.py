@@ -36,26 +36,58 @@ configure_hf_cache(MODEL_ROOT)  # before any other project import -- see FINDING
 
 import numpy as np
 import soundfile as sf
+import torch
 
 from inverse_search.candidate import Candidate
 from inverse_search.generators.audio import AudioGenerator
 
+
+def _mem(label: str) -> None:
+    def mb(n):
+        return n / (1024**2)
+
+    allocated = mb(torch.cuda.memory_allocated())
+    reserved = mb(torch.cuda.memory_reserved())
+    free, total = torch.cuda.mem_get_info()
+    print(
+        f"  [mem] {label}: allocated={allocated:.0f}MB reserved={reserved:.0f}MB "
+        f"driver_free={mb(free):.0f}MB driver_total={mb(total):.0f}MB",
+        flush=True,
+    )
+
 PROMPT = "acoustic guitar song with a clear, memorable melody"
-DURATION_S = 5.0
+# 3.0, not the project's usual 5.0 -- first attempt at 5.0 OOM'd (this
+# 8GB card is shared with normal desktop use, and stacking a full
+# decode + a fresh VAE encode + a second denoising pass in one process
+# is right at the edge). Shorter duration isolates whether the
+# redo_fraction MECHANISM works at all from the separate VRAM-budget
+# engineering problem -- see FINDINGS.md.
+DURATION_S = 3.0
 REDO_FRACTIONS = [0.1, 0.3, 0.6, 1.0]
 OUT_DIR = Path("experiments/psyche_search/data/rediffusion_test")
 
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _mem("baseline")
     gen = AudioGenerator(model_root=MODEL_ROOT, prompt=PROMPT, duration_s=DURATION_S, output_dir=str(OUT_DIR))
     gen.load()
+    _mem("after load")
 
     print("Generating original candidate...", flush=True)
     original_stimulus = gen.initial_population(1)[0]
     original_candidate = Candidate(stimulus=original_stimulus, generation=0)
     audio, sr = sf.read(original_stimulus.source)
     print(f"  original: {original_stimulus.source} (peak={np.abs(audio).max():.4f})", flush=True)
+    _mem("after initial decode")
+
+    print("transformer device before offload test:", next(gen._pipe.transformer.parameters()).device, flush=True)
+    gen._pipe.transformer.to("cpu")
+    torch.cuda.empty_cache()
+    print("transformer device after offload test:", next(gen._pipe.transformer.parameters()).device, flush=True)
+    _mem("after manual transformer->cpu (standalone check)")
+    gen._pipe.transformer.to(gen.device)
+    _mem("after moving transformer back")
 
     for redo_fraction in REDO_FRACTIONS:
         print(f"Mutating via re-diffusion, redo_fraction={redo_fraction}...", flush=True)
@@ -63,9 +95,11 @@ def main():
             mutated = gen.mutate_by_rediffusion(original_candidate, redo_fraction=redo_fraction)
         except Exception as e:
             print(f"  FAILED at redo_fraction={redo_fraction}: {type(e).__name__}: {e}", flush=True)
+            _mem("at failure")
             raise
         audio, sr = sf.read(mutated.source)
         print(f"  redo_fraction={redo_fraction}: {mutated.source} (peak={np.abs(audio).max():.4f})", flush=True)
+        _mem(f"after redo_fraction={redo_fraction}")
 
     gen.unload()
     print(flush=True)

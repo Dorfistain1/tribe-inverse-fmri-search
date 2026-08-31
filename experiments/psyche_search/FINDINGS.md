@@ -735,6 +735,56 @@ manually-ported conditioning/denoising loop is the most likely place
 (shape mismatches, wrong scheduler state) -- flagged clearly in the
 method's own docstring for whoever debugs it next.
 
+## 2026-08-31: partial re-diffusion works -- real bug was a missing torch.no_grad()
+
+First real GPU test of `mutate_by_rediffusion()` from the previous
+entry. Took several rounds of genuine debugging, not one-line fixes --
+worth recording the actual path since the first two "fixes" were
+wrong guesses that happened to look plausible:
+
+1. **First failure**: `CUDA out of memory`, "0 bytes free", inside the
+   VAE encode step. Assumed fragmentation -- added `gc.collect()` +
+   `torch.cuda.empty_cache()`. Retested: identical failure, same
+   ~22GB "allocated" figure. Wrong guess.
+2. **Second attempt**: assumed genuine peak-memory pressure instead,
+   and moved `pipe.transformer` to CPU during the encode (it isn't
+   needed for a VAE-only forward pass) to free real headroom. Retested:
+   identical failure again. Also wrong, or at least not sufficient --
+   confusingly, since a *standalone* test of the same offload call
+   (outside the buggy method) proved it really does free ~6GB.
+3. **Real diagnosis**: stopped guessing, instrumented
+   `test_rediffusion_mutation.py` with direct
+   `torch.cuda.memory_allocated()`/`memory_reserved()`/`mem_get_info()`
+   calls at each stage (real APIs, not the OOM error message's
+   possibly-misleading figure). This showed the actual bug: after a
+   normal ~2.8GB load+decode, calling `mutate_by_rediffusion()` pushed
+   *real, confirmed* `memory_allocated()` to **22.7GB** -- physically
+   impossible on an 8GB card unless something is retaining far more
+   than it should. Root cause: `StableAudioPipeline.__call__` is
+   decorated `@torch.no_grad()`, but the hand-written
+   `mutate_by_rediffusion()` had no such guard -- every tensor op
+   (VAE encode, every transformer call in the denoising loop) was
+   being tracked by autograd for a backward pass that would never
+   happen, retaining the full computation graph across every step.
+   Added `@torch.no_grad()` to the method. Fixed on the first retest:
+   memory stayed bounded (~2.9GB allocated) across all 4 mutations,
+   all real, non-silent audio (peaks 0.53-0.93), exit code 0.
+
+Lesson for next time debugging GPU memory in this codebase: don't
+trust the OOM error message's "X GiB allocated by PyTorch" figure at
+face value, and don't guess-patch (fragmentation, peak pressure) --
+instrument with the real `torch.cuda.memory_*()` APIs at each stage
+first. The two wrong guesses cost real time; the actual bug was found
+in one diagnostic pass once measured directly instead of assumed.
+
+**Not yet checked**: whether edit size actually scales with
+`redo_fraction` the way it should (small = subtle, large = bigger
+change) -- peak amplitude alone (0.77/0.93/0.53/0.89 across
+0.1/0.3/0.6/1.0) doesn't show an obvious trend, but peak isn't a good
+proxy for "how different it sounds" on its own. Next step: actually
+listen, or run the waveform/spectrogram comparison tool
+(`visualize_audio_comparison.py`) against these files.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 

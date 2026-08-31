@@ -106,7 +106,7 @@ duration, not derived -- see generators/audio.py's docstring for the
 comparison points (0.15/0.3 too subtle, 0.5 clearly related-but-
 different, 0.8+ starting to feel unrelated).
 
-## Mutation: partial re-diffusion (v1.5, built, UNTESTED)
+## Mutation: partial re-diffusion (v1.5, built and working)
 
 A whole session's worth of fake-tier testing (curse-of-dimensionality
 mutation tuning, the Watcher's real breakthrough on a sparse target,
@@ -143,10 +143,23 @@ truncated `scheduler.timesteps`, using `add_noise` + `set_begin_index`
 exactly this ("add noise is called before first denoising step to
 create initial latent (img2img)", per its source comment).
 
-Built at the end of a long session with no GPU time left to verify --
-next step is literally running `test_rediffusion_mutation.py` (already
-written) and listening to whether edit size actually scales with
-`redo_fraction` the way it should.
+Verified working the next session (FINDINGS.md has the full debugging
+path): the real bug wasn't fragmentation or peak memory pressure --
+`mutate_by_rediffusion()` had no `@torch.no_grad()` guard, unlike
+`__call__`'s own decorator, so every op in the hand-written encode/
+denoising loop was retaining its autograd graph for a backward pass
+that would never run. Confirmed with real `torch.cuda.memory_allocated()`
+readings (22.7GB "allocated" on an 8GB card -- physically only possible
+via exactly this kind of retention bug). Fixed, retested clean: bounded
+~2.9GB across all 4 `redo_fraction` values, real non-silent audio each
+time. `pipe.transformer.to("cpu")` during the VAE encode is kept as
+defense-in-depth (this card is still a tight 8GB shared with normal
+desktop use) even though it wasn't the actual root cause.
+
+Not yet checked: whether edit size actually *audibly* scales with
+`redo_fraction` the way it should (small = subtle, large = bigger
+change) -- that needs listening or a waveform/spectrogram comparison,
+not just confirming the mechanism runs without crashing.
 
 ## Testing pyramid: fake generator/runtime before real runs
 
