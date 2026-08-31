@@ -30,7 +30,18 @@ def compute_log_spectrogram(audio_path: str, nperseg: int = 1024, noverlap: int 
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
     _freqs, _times, spec = signal.spectrogram(audio, fs=sr, nperseg=nperseg, noverlap=noverlap)
-    return np.log1p(spec)
+    # dB scale (10*log10), not log1p -- scipy's default PSD scaling
+    # divides by the sample rate (44100), so raw power values for
+    # normal-amplitude audio are already ~1e-4 or smaller. log1p(x)~=x
+    # for x this small, so it barely transforms anything: every real
+    # clip ended up numerically near-indistinguishable from silence,
+    # collapsing every candidate's fitness to ~0 regardless of actual
+    # content (found live, all-real-data, not a theoretical concern --
+    # see FINDINGS.md). dB scaling is the standard way spectrograms get
+    # log-scaled for comparison (matches visualize_audio_comparison.py's
+    # own plotting), and properly spreads values across a real dynamic
+    # range instead of compressing everything into one tiny cluster.
+    return 10 * np.log10(spec + 1e-12)
 
 
 def spectrogram_similarity_fitness(stimulus: Stimulus, target_spectrogram: np.ndarray) -> float:
