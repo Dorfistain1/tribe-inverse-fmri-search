@@ -861,6 +861,26 @@ actual test where decay is active *before* any further improvement
 happens, or a repeat/statistical comparison, before crediting it with
 anything.
 
+**patience=3 rerun: same problem, checked directly.** Result +0.427 --
+lower than the patience=5 run's +0.5725. Manifest shows the +0.427
+elite was found at generation 4, decay didn't engage until *after*
+generation 7 (three generations later), and the only two generations
+that actually ran with a decayed redo_fraction (gen 8-9) never beat
+it (best 0.358). Identical shape to every run so far: the headline
+number comes from a lucky mutation chain on the fixed, undecayed
+starting value, before decay gets a turn. 0.427 being lower than
+0.5725 is consistent with this being ordinary variance in that early
+phase, not a decay effect.
+
+**Honest state across all three real runs (0.3708 no-decay, 0.5725
+patience=5, 0.427 patience=3): zero of them have actually tested
+whether decay helps.** In every case decay engaged, if at all, only
+after the run's peak was already found, with at most 2-6 generations
+of runway afterward -- never enough to show a trend either way. Real
+test would need either much longer runs (more post-engagement runway)
+or repeats at each setting to separate signal from the lucky-jump
+noise that's dominated every result so far.
+
 Per-generation range of the meta-search population (shows the
 collapse happening, not just the end state):
 
