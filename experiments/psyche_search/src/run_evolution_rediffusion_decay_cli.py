@@ -36,14 +36,24 @@ from inverse_search.generators.audio import AudioGenerator
 from inverse_search.status_log import StatusLogger
 from tribe_core import TribeRuntime
 
-CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "evolution_checkpoint_rediffusion_decay.json"
-OUTPUT_DIR = "experiments/psyche_search/data/evolution_run_rediffusion_decay"
-STATUS_PATH = Path("experiments/psyche_search/data/evolution_rediffusion_decay_status.json")
+CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "evolution_checkpoint_rediffusion_decay_p3.json"
+OUTPUT_DIR = "experiments/psyche_search/data/evolution_run_rediffusion_decay_p3"
+STATUS_PATH = Path("experiments/psyche_search/data/evolution_rediffusion_decay_p3_status.json")
 PROMPT = "acoustic guitar song with a clear, memorable melody"
 REDO_FRACTION = 0.3  # same starting point as the non-decay run, for a fair comparison
 REDO_FRACTION_DECAY = 0.7  # same factor as step_scale_decay's proven value on the fake tier
 MIN_REDO_FRACTION = 0.05
 N_GENERATIONS = 10  # matches the non-decay run exactly
+# 3, not the default 5: measured directly on the first decay run's
+# manifest -- 6 straight stalled generations (gen4-9) only triggered
+# ONE decay cycle at patience=5, barely denting redo_fraction before
+# the run ended. Within a fixed 10-generation budget, patience=3
+# would've triggered twice in the same stretch (0.3->0.21->0.147),
+# more chances to actually refine. Not as aggressive as patience=1
+# (the very first attempt, which decayed too fast and underperformed
+# no decay at all, FINDINGS.md) -- a middle ground informed by two
+# real data points now, not a guess.
+STALL_PATIENCE = 3
 
 
 def print_progress(message: str) -> None:
@@ -70,6 +80,7 @@ def main():
         redo_fraction=REDO_FRACTION,
         redo_fraction_decay=REDO_FRACTION_DECAY,
         min_redo_fraction=MIN_REDO_FRACTION,
+        stall_patience=STALL_PATIENCE,
     )
     config = SearchConfig(n_generations=N_GENERATIONS)
 
