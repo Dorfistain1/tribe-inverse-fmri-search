@@ -94,6 +94,7 @@ def main():
     # g{gen}_fit{fitness}_... afterward) tells a human nothing on its
     # own -- rename to something readable for this ad hoc comparison.
     original_renamed = Path(original_stimulus.source).with_name("original.wav")
+    original_renamed.unlink(missing_ok=True)  # Windows rename() errors if destination exists, unlike POSIX
     Path(original_stimulus.source).rename(original_renamed)
     original_stimulus.source = str(original_renamed)  # must match on disk -- mutate_by_rediffusion reads this path
     print(f"  renamed original -> {original_renamed}", flush=True)
@@ -107,6 +108,7 @@ def main():
             _mem("at failure")
             raise
         renamed = Path(mutated.source).with_name(f"redo_{redo_fraction}.wav")
+        renamed.unlink(missing_ok=True)
         Path(mutated.source).rename(renamed)
         audio, sr = sf.read(renamed)
         print(f"  redo_fraction={redo_fraction}: {renamed} (peak={np.abs(audio).max():.4f})", flush=True)
