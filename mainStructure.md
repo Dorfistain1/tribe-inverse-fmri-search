@@ -68,7 +68,7 @@ Those belong entirely inside individual experiment directories.
 # Proposed Repository Structure
 
 ```text
-tribe-lab/
+tribe-inverse-fmri-search/
 │
 ├── README.md
 │
@@ -855,7 +855,7 @@ Every downstream experiment should preserve this distinction.
 The repository should ultimately behave like a small neuroscience laboratory.
 
 ```text
-                   tribe-lab
+              tribe-inverse-fmri-search
                        │
         ┌──────────────┼───────────────┐
         │              │               │

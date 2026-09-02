@@ -1,4 +1,4 @@
-# tribe-lab
+# tribe-inverse-fmri-search
 
 A shared local runtime for [TRIBE v2](https://github.com/facebookresearch/tribev2) (Meta's brain-response prediction model), plus tools and experiments built on top of it -- including an evolutionary search for stimuli whose predicted brain activity resembles a chosen target neural state.
 
