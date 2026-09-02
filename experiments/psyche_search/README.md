@@ -6,6 +6,22 @@
 > pipeline, current vs. deferred approach, and why). Actual run
 > results go in `FINDINGS.md`, including negative/inconclusive ones.
 
+## Status, in short
+
+Everything below this line was written as the *concept* and hypothesis
+*before* real results existed -- it's the theory, not a status report.
+Short version of where things actually stand: the pipeline is built and
+runs real searches against TRIBE (audio generation via Stable Audio
+Open, mutation via partial re-diffusion, selection via fitness against
+a real psychedelic-connectivity target). Real, trustworthy runs
+(several early bugs found and fixed along the way -- see `FINDINGS.md`)
+show fitness climbing for the first few generations, then hitting a
+plateau that survived a few different attempts to escape it. That's a
+real, current limitation of the specific mutation mechanism used so
+far, not evidence the underlying idea doesn't work. Full detail,
+including the failed attempts and why they failed, is in `FINDINGS.md`
+-- read that before assuming anything below is still just theoretical.
+
 ## Concept
 
 The central idea is to investigate whether sensory stimuli can be discovered that produce brain activity resembling measurable characteristics associated with psychedelic states.

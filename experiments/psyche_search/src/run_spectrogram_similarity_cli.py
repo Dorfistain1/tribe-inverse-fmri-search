@@ -8,10 +8,13 @@ call per candidate, so this can afford far more generations than a
 real run in far less time, specifically to sanity-check the mechanism
 before spending real TRIBE time on it.
 
-Target clip is generated once via Stable Audio Open itself (same
-prompt, a fixed seed distinct from the search's own candidates) --
-not a real/copyrighted song, sidesteps any rights question, still a
-real, concrete, judge-by-ear target.
+Target is SYNTHETIC (synthetic_targets.build_strum_silence_target),
+not diffusion-generated -- a diffusion-generated target is just
+another random draw from the same distribution as the population,
+with no distinctive feature to converge toward (found live: start and
+best sounded the same, see FINDINGS.md). Silence-strum-silence has an
+obvious structural fingerprint no generic candidate has by chance, so
+"did it get closer" is both numerically and audibly checkable.
 
 Run this yourself, directly, in your own terminal window:
 
@@ -37,11 +40,14 @@ from tribe_core.env import configure_hf_cache
 MODEL_ROOT = "G:/AI_Models"
 configure_hf_cache(MODEL_ROOT)  # before any other project import -- see FINDINGS.md's HF cache gotcha
 
+import soundfile as sf
+
 from experiments.psyche_search.src.visualize_audio_comparison import plot_comparison
 from inverse_search import EvolutionarySearch, SearchConfig
 from inverse_search.generators.audio import AudioGenerator
 from inverse_search.spectrogram_similarity import LocalAudioRuntime, compute_log_spectrogram, spectrogram_similarity_fitness
 from inverse_search.status_log import StatusLogger
+from inverse_search.synthetic_targets import SAMPLE_RATE, build_strum_silence_target
 
 CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "spectrogram_similarity_checkpoint.json"
 OUTPUT_DIR = Path("experiments/psyche_search/data/spectrogram_similarity_run")
@@ -49,7 +55,6 @@ REFERENCE_DIR = OUTPUT_DIR / "reference"
 STATUS_PATH = Path("experiments/psyche_search/data/spectrogram_similarity_status.json")
 PROMPT = "acoustic guitar song with a clear, memorable melody"
 DURATION_S = 5.0
-TARGET_SEED = 999  # distinct from the search's own candidate seeds (start at 0)
 REDO_FRACTION = 0.3
 REDO_FRACTION_DECAY = 0.7
 MIN_REDO_FRACTION = 0.05
@@ -66,15 +71,11 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("Generating target clip...", flush=True)
-    target_gen = AudioGenerator(model_root=MODEL_ROOT, prompt=PROMPT, duration_s=DURATION_S, output_dir=str(REFERENCE_DIR))
-    target_gen.load()
-    target_latent = target_gen._random_latent(seed=TARGET_SEED)
-    target_stimulus = target_gen.decode_latent(target_latent, identifier="target")
+    print("Building synthetic target (silence, strum, silence)...", flush=True)
+    target_audio = build_strum_silence_target(duration_s=DURATION_S, sr=SAMPLE_RATE)
     target_dst = REFERENCE_DIR / "target.wav"
-    Path(target_stimulus.source).replace(target_dst)
+    sf.write(str(target_dst), target_audio, SAMPLE_RATE)
     target_spectrogram = compute_log_spectrogram(str(target_dst))
-    target_gen.unload()
     print(f"  target: {target_dst}", flush=True)
 
     status = StatusLogger(STATUS_PATH, min_interval_s=60)

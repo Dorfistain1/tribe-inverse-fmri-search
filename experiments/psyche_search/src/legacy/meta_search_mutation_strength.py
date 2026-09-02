@@ -39,11 +39,11 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
 
 import torch
 
-from experiments.psyche_search.src.sweep_mutation_strength import analyze_manifest
+from experiments.psyche_search.src.legacy.sweep_mutation_strength import analyze_manifest
 from inverse_search import Candidate, EvolutionarySearch, SearchConfig
 from inverse_search.fake_runtime import FakeTribeRuntime, latent_distance_fitness
 from inverse_search.generators.base import StimulusGenerator

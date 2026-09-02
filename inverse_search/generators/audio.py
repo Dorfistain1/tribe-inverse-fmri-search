@@ -15,6 +15,7 @@ re-derive it the same way rather than guessing.
 from __future__ import annotations
 
 import hashlib
+import random
 from pathlib import Path
 
 import numpy as np
@@ -104,11 +105,21 @@ class AudioGenerator(StimulusGenerator):
         redo_fraction: float = 0.3,
         redo_fraction_decay: float | None = None,
         min_redo_fraction: float = 0.05,
+        guidance_scale: float = 7.0,
+        initial_seed_offset: int = 0,
+        redo_fraction_range: tuple[float, float] | None = None,
     ):
         self.model_root = model_root
         self.prompt = prompt
         self.duration_s = duration_s
         self.num_inference_steps = num_inference_steps
+        # 7.0 matches StableAudioPipeline.__call__'s own default -- how
+        # hard CFG extrapolates toward the prompt's embedding and away
+        # from a zero-conditioning baseline (see mutate_by_rediffusion's
+        # do_cfg block). This, not the prompt text alone, is most of
+        # what makes output adhere to "acoustic guitar song" -- lower it
+        # to weaken that pull without dropping the prompt.
+        self.guidance_scale = guidance_scale
         self.mutation_strength = mutation_strength
         self.device = device
         # "latent" (default): mutate()'s original raw-initial-noise
@@ -123,6 +134,21 @@ class AudioGenerator(StimulusGenerator):
         self.redo_fraction = redo_fraction
         self.redo_fraction_decay = redo_fraction_decay
         self.min_redo_fraction = min_redo_fraction
+        # If set, each mutate() call draws redo_fraction uniformly from
+        # this (min, max) range instead of using self.redo_fraction --
+        # heterogeneous edit sizes within ONE generation (some
+        # candidates get a small refinement-scale edit, some a larger
+        # jump, simultaneously) instead of one shared, globally-decaying
+        # value. Three real runs all showed the same fast-climb-then-
+        # plateau shape regardless of starting population, with decay
+        # never clearly helping escape it (FINDINGS.md, 2026-09-01) --
+        # this tests whether within-generation diversity in edit size
+        # does better than between-generation decay at finding an escape.
+        # Mutually exclusive with redo_fraction_decay in practice: decay
+        # adjusts self.redo_fraction, which this bypasses entirely when
+        # set -- don't combine both in the same run, the decay would be
+        # a silent no-op.
+        self.redo_fraction_range = redo_fraction_range
         # Adaptive step size (evolution strategies' "1/5 success
         # rule"): shrink mutation_strength when a generation fails to
         # beat the previous best. None (default) keeps mutation_strength
@@ -155,7 +181,19 @@ class AudioGenerator(StimulusGenerator):
         # whenever the counters lined up. Discovered when a "random
         # baseline" run reproduced the evolutionary run's exact fitness
         # values almost everywhere.
-        self._counter = 0
+        #
+        # That same "resets to 0 every fresh process" property turned
+        # out to have a second, previously-unnoticed consequence:
+        # initial_population() always draws seeds starting at 0, so
+        # EVERY real run in this project has started from the identical
+        # 6 gen0 candidates (FINDINGS.md, 2026-09-01 -- explains why two
+        # independent-looking runs both peaked at generation 5 with
+        # similar fitness: same starting population, only later
+        # generations' now-real mutation randomness diverged). Pass
+        # initial_seed_offset to deliberately start from a different
+        # gen0 population, e.g. to check whether a result generalizes
+        # beyond this one specific starting draw.
+        self._counter = initial_seed_offset
 
     @property
     def n_frames(self) -> int:
@@ -219,6 +257,7 @@ class AudioGenerator(StimulusGenerator):
             prompt=self.prompt,
             audio_end_in_s=self.duration_s,
             num_inference_steps=self.num_inference_steps,
+            guidance_scale=self.guidance_scale,
             latents=latents,
             generator=torch.Generator(self.device).manual_seed(0),
         )
@@ -258,7 +297,12 @@ class AudioGenerator(StimulusGenerator):
 
     def mutate(self, parent: Candidate) -> Stimulus:
         if self.mutation_mode == "rediffusion":
-            return self.mutate_by_rediffusion(parent, redo_fraction=self.redo_fraction)
+            redo_fraction = (
+                random.uniform(*self.redo_fraction_range)
+                if self.redo_fraction_range is not None
+                else self.redo_fraction
+            )
+            return self.mutate_by_rediffusion(parent, redo_fraction=redo_fraction)
         parent_latent = parent.stimulus.metadata.get("latent")
         if parent_latent is None:
             raise ValueError(
@@ -348,7 +392,7 @@ class AudioGenerator(StimulusGenerator):
 
         pipe = self.load()
         device = self.device
-        guidance_scale = 7.0  # matches _decode()'s pipe() calls, which never override this default
+        guidance_scale = self.guidance_scale
         do_cfg = guidance_scale > 1.0
 
         # This card is already tight (8GB, ~5.9GB resident for the
@@ -393,7 +437,20 @@ class AudioGenerator(StimulusGenerator):
         length = min(audio_tensor.shape[-1], audio_vae_length)
         padded[:, :, :length] = audio_tensor[:, :, :length]
 
-        seed_generator = torch.Generator(device).manual_seed(0)
+        # Real per-call random seed, not a fixed manual_seed(0) -- fixing
+        # it looked like it made this function deterministic, but it
+        # didn't: two back-to-back calls with identical parent/
+        # redo_fraction/seed still produced substantially different
+        # audio (max sample diff 0.65 on a 0.9 peak, FINDINGS.md
+        # 2026-09-02) -- GPU float non-determinism in the forward pass
+        # was already injecting uncontrolled variation regardless of the
+        # seed. A fixed seed bought nothing but false reproducibility
+        # while making redo_fraction look like the only exploration
+        # knob. Seeding randomly instead, and logging the seed used, so
+        # variation is at least an acknowledged, inspectable part of the
+        # process rather than a silent confound.
+        mutation_seed = torch.randint(0, 2**31 - 1, (1,)).item()
+        seed_generator = torch.Generator(device).manual_seed(mutation_seed)
         encoded_latents = pipe.vae.encode(padded).latent_dist.sample(seed_generator)
         del audio_tensor, padded  # done with these -- free before the transformer moves back to GPU
         torch.cuda.empty_cache()
@@ -495,5 +552,9 @@ class AudioGenerator(StimulusGenerator):
             identifier=identifier,
             modality="audio",
             source=str(path),
-            metadata={"latent": latents.detach().to("cpu")},
+            metadata={
+                "latent": latents.detach().to("cpu"),
+                "mutation_seed": mutation_seed,
+                "redo_fraction_used": redo_fraction,
+            },
         )

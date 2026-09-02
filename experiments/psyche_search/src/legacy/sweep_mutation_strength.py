@@ -26,7 +26,7 @@ import statistics
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
 
 from inverse_search import EvolutionarySearch, SearchConfig
 from inverse_search.fake_runtime import FakeTribeRuntime, latent_distance_fitness

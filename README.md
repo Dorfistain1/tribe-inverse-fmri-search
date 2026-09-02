@@ -10,7 +10,7 @@ See [mainStructure.md](mainStructure.md) for the full architecture and design ph
 - **`inverse_search/`** -- a generic "search for a stimulus matching a target brain state" engine. See [inverse_search/DESIGN.md](inverse_search/DESIGN.md) for its pipeline and what's built vs. still planned.
 - **`experiments/psyche_search/`** -- the first concrete experiment: searching for audio whose predicted brain response resembles psychedelic-state connectivity patterns. See its [README](experiments/psyche_search/README.md) and [research notes](experiments/psyche_search/restructure.md).
 
-This is a solo research project, not a maintained library -- expect rough edges, and expect the `inverse_search` generator to still be a stub (see DESIGN.md) until the audio-generation piece is built.
+This is a solo research project, not a maintained library -- expect rough edges. The audio generator (Stable Audio Open, `inverse_search/generators/audio.py`) is built and has run real evolutionary searches against TRIBE; see [experiments/psyche_search/FINDINGS.md](experiments/psyche_search/FINDINGS.md) for what's actually been found so far, and [CONTRIBUTING.md](CONTRIBUTING.md) if you want to dig in or contribute.
 
 ## Requirements
 

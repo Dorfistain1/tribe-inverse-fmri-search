@@ -965,4 +965,313 @@ on TRIBE's actual landscape.
 
 ---
 
+## 2026-09-01: prompt/guidance_scale probe -- dropping the prompt breaks the model, doesn't free it
+
+`probe_prompt_guidance.py`: same fixed latent, 5 decodes varying only
+prompt text and `guidance_scale` (7.0 is `StableAudioPipeline`'s own
+default, confirmed by reading `pipeline_stable_audio.py` directly --
+not a value we picked, matches the library). Listened to all 5:
+
+| combo | result |
+|---|---|
+| guitar prompt, cfg=7.0 (current default) | normal, coherent music |
+| guitar prompt, cfg=3.0 | AI-noisy garbage |
+| empty prompt, cfg=7.0 / 3.0 / 1.0 | ~0.5s of inaudible speech-like sound, then silence, for all three |
+
+**This falsifies the working theory from earlier today** that
+`guidance_scale` was the main thing forcing "acoustic guitar song"
+onto every candidate, and that backing it off would let some hidden,
+more diverse prior show through. It doesn't -- lowering `guidance_scale`
+with a real prompt just breaks audio quality, and empty prompt breaks
+the same way "ambient music" did (see 2026-08-30 entry): this model
+needs strong text conditioning + `guidance_scale=7.0` to produce
+anything coherent. There's no diverse unconditioned prior hiding
+underneath at accessible settings.
+
+**Decision**: keep the prompt, keep `guidance_scale=7.0`, but treat the
+prompt as a deliberate, disclosed style choice rather than an
+incidental default -- switch from the placeholder "acoustic guitar
+song" wording to an explicitly psychedelic-flavored prompt, and say so
+plainly in any write-up (we choose the target *style* via prompt; the
+search explores/shapes fitness within it, it doesn't invent style from
+noise). `guidance_scale` was exposed as a real `AudioGenerator`
+constructor param (was hardcoded in two places) so this and future
+prompt work don't require code changes to test.
+
+Two different follow-up tests, not to be conflated:
+- **Cheap**: sweep candidate prompt wordings at fixed cfg=7.0, check
+  which ones produce coherent, non-garbage audio and survive
+  rediffusion mutation without collapsing -- no TRIBE, minutes, same
+  shape as this probe.
+- **Expensive**: which prompt actually shifts TRIBE's output most
+  toward the real target -- needs a full real run *per* prompt tested,
+  multiplies real-TRIBE time by however many prompts survive the cheap
+  filter. Only worth it after that filter narrows the field.
+
+## 2026-09-01: brainstorm -- is sibling diversity from a designed mutation operator, or GPU jitter?
+
+Checked something during a brainstorm session (no code changes, just
+looking at existing on-disk data from the already-completed
+`run_evolution_rediffusion_decay_long_cli.py` 27-gen run):
+`mutate_by_rediffusion()` seeds its RNG with `torch.Generator(device).manual_seed(0)`,
+freshly, on *every single call* -- used for both the VAE-encode
+sampling and the injected noise. For a fixed parent + fixed
+`redo_fraction`, every explicit source of randomness in the function is
+therefore pinned to the same value every time it's called.
+
+And yet: checking real sibling candidates that share a parent and
+generation in that run's `manifest.csv` (e.g. gen1's 5 children, all
+`parent_id=cand_c0b154b4fb16`), their real TRIBE fitness values differ
+(0.1674, 0.1247, 0.0401, -0.1249, 0.1836) -- confirmed via the
+manifest, not assumed. So the function is *not* actually deterministic
+in practice, despite every named seed being fixed.
+
+**Hypothesis, not yet verified**: the actual source of variation
+between "identical" mutation calls isn't a designed exploration
+operator at all -- it's likely non-deterministic floating-point
+behavior in the GPU forward pass (attention/matmul reduction order;
+nothing in this codebase sets `torch.use_deterministic_algorithms` or
+pins cuDNN to a deterministic mode), compounding over the ~12+ manual
+denoising steps into a real, measurable audio/fitness difference. If
+true, this would mean the "mutation" driving evolutionary diversity
+all session has actually been uncontrolled hardware jitter, not a
+tunable stochastic operator -- which would explain a lot: why
+`redo_fraction` decay never reliably helped (shrinking the window
+shrinks the *jitter's* opportunity to compound too, not just the
+"edit size"), and why exploration has felt weak/plateau-prone despite
+`redo_fraction` nominally being a real dial.
+
+**Cheap way to check, next session**: call `mutate_by_rediffusion()`
+twice back-to-back on the exact same parent + `redo_fraction` and
+compare the raw output arrays for bit-exact equality. If they're
+identical, the hypothesis is wrong and diversity comes from somewhere
+else not yet identified. If they differ, it's confirmed, and the fix
+is straightforward -- stop hardcoding `manual_seed(0)`, seed with a
+real per-call random value instead, turning accidental jitter into a
+deliberate, understood, appropriately-sized exploration operator.
+
+**Checked (2026-09-02, `verify_mutation_determinism.py`): confirmed.**
+Same parent, same `redo_fraction=0.3`, identical `manual_seed(0)` in
+both calls -- output still diverged: max abs sample difference 0.6487
+(peak amplitude of both clips was only 0.9), RMS difference 0.1137.
+That's not floating-point-scale jitter, that's substantially different
+audio content. GPU non-determinism in the forward pass (not a designed
+exploration operator) is the confirmed real source of "sibling"
+diversity in every rediffusion-mutation run this project has done so
+far. `redo_fraction` was never actually controlling "how much
+randomness gets injected" the way its name implies -- it controls how
+many denoising steps are exposed to this uncontrolled jitter, which is
+a different, much less legible thing to tune. This plausibly explains
+the repeated plateau/decay-doesn't-help pattern: shrinking
+`redo_fraction` shrinks the jitter's compounding window, not a
+deliberate "edit size."
+
+**Fix applied (2026-09-02)**: `mutate_by_rediffusion()` now draws a real
+random seed per call (`torch.randint`) instead of hardcoding
+`manual_seed(0)`, and stores it in the returned `Stimulus.metadata`
+(`"mutation_seed"`) for traceability. Doesn't remove the underlying GPU
+non-determinism, but turns it from a silent confound into an
+acknowledged, logged source of variation, and stops implying a false
+reproducibility that never actually held. Not yet re-verified with a
+real run.
+
+**Follow-up, same day: the jitter can be eliminated outright, not just
+logged.** `verify_deterministic_mode.py`: set
+`CUBLAS_WORKSPACE_CONFIG=:4096:8` before CUDA init, called
+`torch.use_deterministic_algorithms(True, warn_only=False)` -- enabled
+cleanly, no unsupported-op fallback needed. Pinned `torch.manual_seed`
+before each of two back-to-back `mutate_by_rediffusion()` calls (same
+parent, same `redo_fraction=0.3`, same resulting internal seed
+1608637542 both times) -- **output was bit-exact** (`np.array_equal`
+true) both times.
+
+So the GPU non-determinism found earlier today is fully closeable on
+this model/setup, not a structural dead end. Real path forward:
+combine `torch.use_deterministic_algorithms(True)` with the new
+explicit per-call seed (already logged in metadata) and
+`redo_fraction` becomes what it was always supposed to be -- a single,
+clean, fully-reproducible-given-the-seed exploration dial, no hidden
+hardware-jitter confound riding along with it. Not yet wired into the
+main generation path (`AudioGenerator`/real search scripts) -- this
+was checked in isolation, in a throwaway script.
+
+Practical caveat, not yet measured: deterministic algorithms can be
+slower than the default (non-deterministic) CUDA kernels for some ops
+-- this run's per-mutation wall time wasn't compared against a
+non-deterministic baseline call, so the speed cost (if any) of turning
+this on for real search runs is still unknown.
+
+### Other brainstormed directions (not started, ranked by how cheap they are to test)
+
+- **Prompt-blend genome**: make the *conditioning* itself part of what
+  evolution controls -- each candidate carries a blend weight across 2-3
+  anchor prompts (e.g. "psychedelic ambient" vs. "hypnotic driving
+  rhythm"), mutation nudges the blend. Guarantees real, audible effect
+  per mutation (conditioning directly changes), unlike latent-level
+  edits that CFG keeps pulling back toward one fixed style. Real risk:
+  interpolating text embeddings doesn't reliably produce
+  semantically-in-between audio -- untested, would need a cheap
+  listen-only check first (2-3 interpolation points, no TRIBE).
+- **CFG scheduling**: high `guidance_scale` early in the denoising
+  schedule (locks in target-consistent global structure), lower later
+  (loosens local/texture detail so mutation has more room to move
+  without breaking coherence). Standard trick in image diffusion;
+  untried here.
+- **Heterogeneous mutation strength across the population**: instead of
+  one shared `redo_fraction` for every candidate in a generation, give
+  some candidates larger and some smaller values simultaneously (mixed
+  step sizes, standard in evolution strategies) -- more chances to
+  escape the "final 20%" trap in a single generation, no rebuild, pure
+  config/algorithm change.
+- **Multi-family seeding**: seed gen0 from several different
+  but-individually-coherent prompt variants instead of one, let
+  selection pick which family wins on real fitness, mutate
+  within-family afterward. Injects real diversity structurally at gen0
+  rather than expecting rediffusion mutation to manufacture it later.
+- **DSP-layer mutation** (raised earlier, still on the table): keep the
+  diffuser only for gen0 (real, natural, TRIBE-in-distribution audio),
+  do all mutation via direct waveform edits (silence insertion, timing,
+  pitch shift, gain envelope) instead of repeated prompt-conditioned
+  re-diffusion. Fully legible/controllable, and today's empty-prompt
+  result strengthens the case for it: the diffuser's conditioning is
+  fragile enough that *not* re-invoking it every mutation looks safer,
+  not just simpler.
+
+## 2026-09-01: prompt screening -- psy_ambient wins clearly, no switch needed
+
+`prompt_screening_cli.py`: 3 candidate psychedelic-style prompts x 6
+seeds each, un-mutated gen0-style candidates, real TRIBE fitness, no
+evolution. Point: ground the prompt choice in the actual optimization
+target instead of just coherence/listening (all that prior prompt
+comparisons had checked).
+
+| prompt | mean | best | worst |
+|---|---|---|---|
+| psy_ambient | -0.0125 | **+0.0545** | -0.0490 |
+| psy_electronic | -0.1898 | -0.1305 | -0.2372 |
+| psy_rock | -0.1456 | -0.0980 | -0.2019 |
+
+Not close. `psy_ambient`'s entire distribution sits ~0.13-0.18 above
+the other two -- it's the only prompt where any seed ever crossed into
+positive fitness (1 of 6). This is also the prompt both real
+evolutionary runs so far happened to use (picked by ear, not by this
+data) -- so no prompt switch needed, and both existing real runs stay
+comparable to whatever comes next. Multi-prompt-family seeding
+(brainstormed 2026-09-01) is deprioritized -- the screening gap is too
+lopsided to expect blending in the weaker two prompts would help.
+
+## 2026-09-01: decay fair-test -- finally engages properly, still no clean evidence it helps
+
+`run_evolution_decay_fair_test_cli.py`, `stall_patience=1` (was 3),
+same prompt (`psy_ambient`) and budget (9 gens) as the previous
+trustworthy run, isolating just this one variable. 65.05 min elapsed
+(3903s vs. the previous run's 3746s -- consistent pace, good).
+
+Decay engaged properly this time: `first_decay_generation: 3`,
+`best_found_after_decay: true`. Best-ever trajectory: 0.0786 (gen0) ->
+0.18 (gen1) -> 0.2505 (gen2) -> [stalls gen3-4, decay engages] -> 0.3519
+(gen5) -> [stalls gen6-8, run ends]. The gen5 breakthrough genuinely
+happened after 2 rounds of decay had already shrunk `redo_fraction`
+(0.3 -> 0.21 -> 0.147), so on its face this looks like decay enabling a
+refinement past a plateau -- the hypothesis this whole line of testing
+was chasing.
+
+**But**: `best_found_after_decay: true` being real doesn't prove decay
+*caused* it, and the one comparison we actually have points the other
+way. The immediately preceding trustworthy run
+(`run_evolution_deterministic_hour_cli.py`, `stall_patience=3`, decay
+barely engaged until gen8) reached +0.3852 at generation 5. This run
+(more decay pressure, earlier) reached +0.3519 at the same generation
+number -- slightly *lower*. So the one apples-to-apples comparison
+available says more/earlier decay correlated with a slightly worse
+peak, not a better one. Nowhere near enough sample (n=2 runs, different
+random seeds throughout) to conclude decay hurts either -- just enough
+to say it did NOT clearly help, which is itself the honest answer after
+this many attempts to test it. A real controlled comparison (same
+seeds, only `stall_patience` differing) would need paired runs, not
+independent ones -- not done here.
+
+User's listening reaction to `best_g05_fit+0.352.wav`: "very ominous."
+First real qualitative description tied to a run we actually trust end
+to end (deterministic mutation, validated prompt, fair decay test) --
+worth remembering as a data point even though it's subjective, since
+so much of this project's early "does fitness even mean anything
+audible" concern is finally being checked against trustworthy
+numbers instead of confounded ones.
+
+## 2026-09-01: different starting seeds -- the plateau pattern generalizes, but timing/magnitude don't
+
+`run_evolution_different_seeds_cli.py`, `initial_seed_offset=100`
+(gen0 seeds 100-105 instead of the 0-5 every prior run shared), same
+prompt/budget/settings as the original trustworthy baseline
+(`stall_patience=3`). 79.9 min elapsed (4793.7s) -- notably longer than
+the previous two runs (62.4min, 65.1min); resolved, not a mystery --
+the PC was in active use for other things during this run, real GPU/CPU
+contention, not a property of the code or settings.
+
+This gen0 started markedly worse (mean -0.0098, max +0.0425 vs. the
+shared population's +0.0353/+0.0786) and had a rough gen1 (all 5
+children negative, min -0.3078). Then a real breakthrough at
+**generation 2**: max +0.2890 -- earlier than either previous run's
+peak (both at gen5). `best_ever_generation: 2`, final best **+0.2890**,
+never beaten through gen8. `first_decay_generation: 5`,
+`best_found_after_decay: false` -- decay still hasn't helped in any
+fair test.
+
+**Interpretation**: the climb-then-plateau *shape* replicates on a
+genuinely different starting population -- not an artifact of the
+shared gen0 seeds after all, real evidence the mechanism (or the
+landscape it's searching) has a general tendency to find a quick early
+win and then stop improving. But the *specifics* vary a lot by starting
+draw: peak at generation 2 here vs. generation 5 in both prior runs,
+final best +0.289 here vs. +0.385/+0.352 there. So any single run's
+exact numbers ("peaks around gen5", "reaches ~0.35-0.39") were never a
+stable fact -- only the general dynamic (fast climb, early plateau,
+decay not clearly helping) is now supported by three independent data
+points instead of one shared starting condition.
+
+Three for three on the plateau, zero for three on decay helping --
+worth treating this as evidence the limitation is in the mutation
+mechanism itself (rediffusion off a fixed prompt), not something more
+tuning of redo_fraction/decay is likely to fix. Points toward trying a
+structurally different exploration idea next (heterogeneous
+redo_fraction across a generation, or the DSP-layer-mutation idea) over
+further decay-parameter tuning.
+
+## 2026-09-01: heterogeneous redo_fraction -- clean negative result
+
+`run_evolution_heterogeneous_redo_cli.py`, `redo_fraction_range=(0.1, 0.5)`
+(each mutation call draws its own value, no shared/decaying redo_fraction),
+same prompt and starting population (`initial_seed_offset=0`) as the
+original two trustworthy baselines -- directly comparable, one variable
+changed. 87.7 min elapsed (5262.8s), longer than the ~62-65min other
+same-seed runs took; unconfirmed whether that's PC contention (like the
+last run's measured cause) or genuinely more compute from the range's
+upper bound exceeding the old fixed 0.3 default -- not checked either
+way.
+
+**Worse, not better.** Best fitness +0.2264 at generation 3, well below
+both fixed/decaying-redo_fraction runs on this same starting population
+(+0.3852, +0.3519). Per-generation mean fitness was negative in 7 of 9
+generations (gen0's initial population aside) -- population quality
+was consistently rougher throughout, not just a lower peak. Generation
+mins repeatedly hit -0.26 to -0.30, notably worse than any generation
+min seen in the fixed/decay runs on the same seeds.
+
+Reasonable read: allowing redo_fraction up to 0.5 (vs. the old fixed
+0.3) let some mutations make bigger, more destructive edits more often
+than it let good candidates refine -- the downside outweighed the
+upside here. Doesn't rule out a narrower range (e.g. closer to 0.3
+either side) doing better, but this specific range clearly didn't help
+and shouldn't be assumed to be a general improvement over fixed/decaying
+redo_fraction.
+
+**Four real experiments on this same starting population now** (fixed
+0.3/patience=3: +0.3852; fixed 0.3/patience=1: +0.3519; heterogeneous
+0.1-0.5: +0.2264) plus one on a different population (+0.2890) -- none
+beat the original plain fixed-redo_fraction run. Real diminishing
+returns on tuning this lever further; worth treating this as the
+mechanism's rough ceiling for this prompt/setup rather than continuing
+to search for a better redo_fraction schedule.
+
 *(next entries go here)*

@@ -37,3 +37,27 @@ def configure_hf_cache(model_root: str) -> None:
 
     os.environ.setdefault("HF_HOME", os.path.join(model_root, "huggingface"))
     os.environ.setdefault("TRANSFORMERS_CACHE", os.path.join(model_root, "huggingface"))
+
+
+def configure_deterministic_mode() -> None:
+    """Forces bit-reproducible CUDA ops, closing a real gap found in
+    `mutate_by_rediffusion()`: fixing every named seed did NOT make
+    repeated mutation calls reproducible -- GPU float non-determinism
+    in the forward pass (attention/matmul reduction order) was injecting
+    substantial, uncontrolled variation anyway (max sample diff 0.65 on
+    a 0.9 peak between two "identical" calls, FINDINGS.md 2026-09-02).
+    Verified directly (verify_deterministic_mode.py) that enabling this
+    closes the gap completely (bit-exact given a pinned seed) and that
+    this model doesn't hit any op lacking a deterministic CUDA impl --
+    not a given, so don't assume it holds on a different model/setup
+    without checking the same way.
+
+    CUBLAS_WORKSPACE_CONFIG must be set before CUDA initializes, so
+    call this before any other project import -- same rule and same
+    reason as configure_hf_cache's HF_HOME gotcha above.
+    """
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
+    import torch
+
+    torch.use_deterministic_algorithms(True, warn_only=False)

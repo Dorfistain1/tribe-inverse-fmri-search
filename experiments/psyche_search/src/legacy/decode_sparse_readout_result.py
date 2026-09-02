@@ -22,7 +22,7 @@ Run:
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent))
 
 import numpy as np
 import torch
@@ -50,7 +50,7 @@ MIN_STEP_SCALE = 1.0
 STALL_PATIENCE = 5
 PROMPT = "acoustic guitar song with a clear, memorable melody"  # AudioGenerator's fixed-good default
 
-OUT_DIR = Path("experiments/psyche_search/data/sparse_readout_reference")
+OUT_DIR = Path("experiments/psyche_search/data/legacy/sparse_readout_reference")
 N_FEATURES = LATENT_CHANNELS * round(DURATION_S * LATENT_FRAMES_PER_SECOND)
 
 
